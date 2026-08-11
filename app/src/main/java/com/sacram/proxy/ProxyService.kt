@@ -75,6 +75,7 @@ class ProxyService : Service() {
             if (!wifiOk) {
                 updateStatus("Note: could not auto-enable WiFi (some Android versions block it) - trying anyway")
             }
+            Telemetry.send(this, "proxy_starting", mapOf("wifi_auto_ok" to "$wifiOk", "port" to "${config.port}"))
             val p2p = WifiDirectManager(this)
 
             updateStatus("Creating WiFi Direct group...")
@@ -91,6 +92,7 @@ class ProxyService : Service() {
                 delay(200); waited += 200
             }
             if (!createOk) {
+                Telemetry.send(this, "proxy_error", mapOf("reason" to createMsg))
                 updateStatus("ERROR: $createMsg")
                 stopSelf()
                 return
@@ -116,6 +118,7 @@ class ProxyService : Service() {
                 if (formed) break
             }
             if (!formed) {
+                Telemetry.send(this, "proxy_error", mapOf("reason" to "group did not form"))
                 updateStatus("ERROR: group did not form")
                 stopSelf()
                 return
@@ -137,6 +140,7 @@ class ProxyService : Service() {
             AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
             updateStatus("RUNNING - connect to '$actualSsid' then SOCKS5 $goIp:${config.port}")
             updateNotification(actualSsid, actualPass, goIp, config.port)
+            Telemetry.send(this, "proxy_started", mapOf("port" to "${config.port}", "wifi_auto_ok" to "$wifiOk"))
 
             // client count poller
             while (currentCoroutineContext().isActive && started.get()) {
@@ -148,6 +152,7 @@ class ProxyService : Service() {
                 }
             }
         } catch (e: Exception) {
+            Telemetry.send(this, "proxy_error", mapOf("reason" to (e.message ?: "unknown")))
             updateStatus("ERROR: ${e.message}")
             stopSelf()
         }
@@ -185,6 +190,7 @@ class ProxyService : Service() {
 
     override fun onDestroy() {
         started.set(false)
+        Telemetry.send(this, "proxy_stopped")
         restartJob?.cancel()
         runCatching { fileObserver?.stopWatching() }
         runCatching { socks?.stop() }

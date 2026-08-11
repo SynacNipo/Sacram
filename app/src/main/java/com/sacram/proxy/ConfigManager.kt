@@ -7,7 +7,10 @@ import java.util.Properties
 data class AppConfig(
     val ssid: String,
     val password: String,
-    val port: Int
+    val port: Int,
+    val telemetryPrompted: Boolean = false,
+    val telemetryEnabled: Boolean = false,
+    val collectorUrl: String = "https://sacram-telemetry.up.railway.app"
 )
 
 object ConfigManager {
@@ -69,11 +72,30 @@ object ConfigManager {
             AppConfig(
                 ssid = p.getProperty("ssid", defaultConfig.ssid),
                 password = p.getProperty("password", defaultConfig.password),
-                port = p.getProperty("port", defaultConfig.port.toString()).toIntOrNull() ?: defaultConfig.port
+                port = p.getProperty("port", defaultConfig.port.toString()).toIntOrNull() ?: defaultConfig.port,
+                telemetryPrompted = p.getProperty("telemetry_prompted", "false").toBoolean(),
+                telemetryEnabled = p.getProperty("telemetry_enabled", "false").toBoolean(),
+                collectorUrl = p.getProperty("collector_url", defaultConfig.collectorUrl)
+                    .ifBlank { defaultConfig.collectorUrl }
             )
         } catch (_: Exception) {
             defaultConfig
         }
+    }
+
+    /** Save ssid/password/port while keeping telemetry fields from the previous config. */
+    fun saveSettings(context: Context, ssid: String, password: String, port: Int): AppConfig {
+        val prev = load(context)
+        val next = AppConfig(
+            ssid = ssid,
+            password = password,
+            port = port,
+            telemetryPrompted = prev.telemetryPrompted,
+            telemetryEnabled = prev.telemetryEnabled,
+            collectorUrl = prev.collectorUrl
+        )
+        save(context, next)
+        return next
     }
 
     fun save(context: Context, config: AppConfig) {
@@ -83,7 +105,10 @@ object ConfigManager {
             "# Edit and restart the proxy to apply.",
             "ssid=${config.ssid}",
             "password=${config.password}",
-            "port=${config.port}"
+            "port=${config.port}",
+            "telemetry_prompted=${config.telemetryPrompted}",
+            "telemetry_enabled=${config.telemetryEnabled}",
+            "collector_url=${config.collectorUrl}"
         )
         file.writeText(lines.joinToString("\n") + "\n")
         mirrorToExternal(context)

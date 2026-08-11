@@ -82,6 +82,8 @@ class MainActivity : AppCompatActivity() {
         // Force setting a WiFi password on launch before anything else
         if (config.password.length !in 8..63) {
             showPasswordPrompt()
+        } else {
+            maybeShowTelemetryPrompt()
         }
 
         btnToggle.setOnClickListener {
@@ -153,7 +155,12 @@ class MainActivity : AppCompatActivity() {
             tvSaved.text = "Invalid port - not saved yet"
             return
         }
-        ConfigManager.save(this, AppConfig(ssid.ifEmpty { ConfigManager.defaultConfig.ssid }, pass, port))
+        ConfigManager.saveSettings(
+            this,
+            ssid.ifEmpty { ConfigManager.defaultConfig.ssid },
+            pass,
+            port
+        )
         tvSaved.setTextColor(0xFF2E7D32.toInt())
         val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
         tvSaved.text = "Saved to config.txt \u2713 $time"
@@ -214,16 +221,40 @@ class MainActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
                 val port = etPort.text.toString().toIntOrNull() ?: 1080
-                ConfigManager.save(this, AppConfig(s, p, port))
+                ConfigManager.saveSettings(this, s, p, port)
                 etSsid.setText(s)
                 etPass.setText(p)
                 dialog.dismiss()
+                maybeShowTelemetryPrompt()
                 if (AppState.running.value) {
                     Toast.makeText(this, "Password saved. Restart the proxy to apply.", Toast.LENGTH_LONG).show()
                 }
             }
         }
         dialog.show()
+    }
+
+    private fun maybeShowTelemetryPrompt() {
+        val cfg = ConfigManager.load(this)
+        if (cfg.telemetryPrompted) return
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Help improve Sacram?")
+            .setMessage(
+                "Send anonymous app usage data (device model, Android version, proxy errors) " +
+                    "so the app can be improved? No SSID, password or personal data is ever sent. " +
+                    "You can opt out anytime by editing config.txt."
+            )
+            .setNegativeButton("No thanks") { d, _ ->
+                ConfigManager.save(this, cfg.copy(telemetryPrompted = true, telemetryEnabled = false))
+                d.dismiss()
+            }
+            .setPositiveButton("Yes, share") { d, _ ->
+                ConfigManager.save(this, cfg.copy(telemetryPrompted = true, telemetryEnabled = true))
+                d.dismiss()
+                Telemetry.send(this, "telemetry_opted_in")
+            }
+            .create()
+            .show()
     }
 
     private fun checkPermissionsAndStart() {
