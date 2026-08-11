@@ -19,7 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.coroutineContext
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
@@ -139,7 +139,7 @@ class ProxyService : Service() {
             updateNotification(actualSsid, actualPass, goIp, config.port)
 
             // client count poller
-            while (coroutineContext.isActive && started.get()) {
+            while (currentCoroutineContext().isActive && started.get()) {
                 delay(5000)
                 p2p.requestGroupInfo { g ->
                     val n = g?.clientList?.size ?: 0
