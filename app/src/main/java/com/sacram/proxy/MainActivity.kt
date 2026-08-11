@@ -1,16 +1,24 @@
 package com.sacram.proxy
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.KeyEvent
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,16 +27,25 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.tabs.TabLayout
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var tvStatus: TextView
     private lateinit var tvInfo: TextView
+    private lateinit var tvSaved: TextView
     private lateinit var btnToggle: Button
     private lateinit var etSsid: EditText
     private lateinit var etPass: EditText
     private lateinit var etPort: EditText
+
+    private val saveHandler = Handler(Looper.getMainLooper())
+    private val autosaveRunnable = Runnable { autosave() }
 
     private val permLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -46,6 +63,7 @@ class MainActivity : AppCompatActivity() {
 
         tvStatus = findViewById(R.id.tvStatus)
         tvInfo = findViewById(R.id.tvInfo)
+        tvSaved = findViewById(R.id.tvSaved)
         btnToggle = findViewById(R.id.btnToggle)
         etSsid = findViewById(R.id.etSsid)
         etPass = findViewById(R.id.etPass)
@@ -55,6 +73,11 @@ class MainActivity : AppCompatActivity() {
         etSsid.setText(config.ssid)
         etPass.setText(config.password)
         etPort.setText(config.port.toString())
+        findViewById<TextView>(R.id.tvConfigPath).text =
+            "config.txt: ${ConfigManager.externalConfigFile(this).absolutePath}"
+
+        setupTabs()
+        setupAutosave()
 
         // Force setting a WiFi password on launch before anything else
         if (config.password.length !in 8..63) {
@@ -69,21 +92,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        findViewById<Button>(R.id.btnSave).setOnClickListener { saveConfig() }
-
-        findViewById<Button>(R.id.btnConfigPath).setOnClickListener {
-            val internal = ConfigManager.internalConfigFile(this)
-            val external = ConfigManager.externalConfigFile(this)
-            ConfigManager.mirrorToExternal(this)
-            Toast.makeText(
-                this,
-                "Config file:\n$internal\n\nUser-accessible copy:\n$external",
-                Toast.LENGTH_LONG
-            ).show()
-        }
-
         findViewById<Button>(R.id.btnBattery).setOnClickListener { requestBatteryExemption() }
-
         findViewById<Button>(R.id.btnAutostart).setOnClickListener { openVivoAutostart() }
 
         lifecycleScope.launch {
@@ -93,6 +102,61 @@ class MainActivity : AppCompatActivity() {
                 launch { AppState.running.collect { renderRunning(it) } }
             }
         }
+    }
+
+    override fun onDestroy() {
+        saveHandler.removeCallbacks(autosaveRunnable)
+        super.onDestroy()
+    }
+
+    private fun setupTabs() {
+        val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
+        val tabProxy = findViewById<LinearLayout>(R.id.tabProxy)
+        val tabKeepalive = findViewById<LinearLayout>(R.id.tabKeepalive)
+        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                tabProxy.visibility = if (tab.position == 0) View.VISIBLE else View.GONE
+                tabKeepalive.visibility = if (tab.position == 1) View.VISIBLE else View.GONE
+            }
+
+            override fun onTabUnselected(tab: TabLayout.Tab) {}
+            override fun onTabReselected(tab: TabLayout.Tab) {}
+        })
+    }
+
+    private fun setupAutosave() {
+        val watcher = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                saveHandler.removeCallbacks(autosaveRunnable)
+                saveHandler.postDelayed(autosaveRunnable, 1200)
+            }
+
+            override fun afterTextChanged(s: Editable?) {}
+        }
+        etSsid.addTextChangedListener(watcher)
+        etPass.addTextChangedListener(watcher)
+        etPort.addTextChangedListener(watcher)
+    }
+
+    private fun autosave() {
+        val pass = etPass.text.toString()
+        val ssid = etSsid.text.toString().trim()
+        val port = etPort.text.toString().toIntOrNull()
+        if (pass.length !in 8..63) {
+            tvSaved.setTextColor(0xFFC62828.toInt())
+            tvSaved.text = "Password must be 8-63 characters - not saved yet"
+            return
+        }
+        if (port == null || port < 1 || port > 65535) {
+            tvSaved.setTextColor(0xFFC62828.toInt())
+            tvSaved.text = "Invalid port - not saved yet"
+            return
+        }
+        ConfigManager.save(this, AppConfig(ssid.ifEmpty { ConfigManager.defaultConfig.ssid }, pass, port))
+        tvSaved.setTextColor(0xFF2E7D32.toInt())
+        val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        tvSaved.text = "Saved to config.txt \u2713 $time"
     }
 
     private fun renderRunning(running: Boolean) {
@@ -112,39 +176,12 @@ class MainActivity : AppCompatActivity() {
         """.trimIndent()
     }
 
-    private fun saveConfig() {
-        val pass = etPass.text.toString()
-        if (pass.length < 8 || pass.length > 63) {
-            Toast.makeText(this, "Password must be 8-63 characters", Toast.LENGTH_LONG).show()
-            return
-        }
-        val port = etPort.text.toString().toIntOrNull()
-        if (port == null || port < 1 || port > 65535) {
-            Toast.makeText(this, "Invalid port", Toast.LENGTH_LONG).show()
-            return
-        }
-        ConfigManager.save(
-            this,
-            AppConfig(
-                ssid = etSsid.text.toString(),
-                password = pass,
-                port = port
-            )
-        )
-        Toast.makeText(this, "Saved to config.txt", Toast.LENGTH_SHORT).show()
-    }
-
     private fun onStartClicked() {
         val pass = etPass.text.toString()
         if (pass.length < 8 || pass.length > 63) {
             showPasswordPrompt()
         } else {
-            val current = ConfigManager.load(this)
-            val port = etPort.text.toString().toIntOrNull() ?: current.port
-            val ssid = etSsid.text.toString()
-            if (pass != current.password || ssid != current.ssid || port != current.port) {
-                ConfigManager.save(this, AppConfig(ssid, pass, port))
-            }
+            autosave()
             checkPermissionsAndStart()
         }
     }
@@ -156,7 +193,7 @@ class MainActivity : AppCompatActivity() {
         etDialogSsid.setText(etSsid.text.toString())
         etDialogPass.setText("")
 
-        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("Set WiFi password")
             .setMessage("Password must be 8-63 characters. This cannot be skipped - clients need it to join the hotspot.")
             .setView(view)
@@ -166,12 +203,10 @@ class MainActivity : AppCompatActivity() {
         // Cannot be ignored: no back button, no outside tap, no cancel
         dialog.setCancelable(false)
         dialog.setCanceledOnTouchOutside(false)
-        dialog.setOnKeyListener { _, keyCode, _ ->
-            keyCode == android.view.KeyEvent.KEYCODE_BACK
-        }
+        dialog.setOnKeyListener { _, keyCode, _ -> keyCode == KeyEvent.KEYCODE_BACK }
 
         dialog.setOnShowListener {
-            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val p = etDialogPass.text.toString()
                 val s = etDialogSsid.text.toString()
                 if (p.length < 8 || p.length > 63) {
