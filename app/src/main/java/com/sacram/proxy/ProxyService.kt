@@ -73,6 +73,10 @@ class ProxyService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var fileObserver: FileObserver? = null
     private var restartJob: Job? = null
+    private var startedAt: Long = 0L
+
+    private fun uptimeSeconds(): String =
+        ((System.currentTimeMillis() - startedAt) / 1000).toString()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -98,6 +102,7 @@ class ProxyService : Service() {
             return START_NOT_STICKY
         }
         if (started.compareAndSet(false, true)) {
+            startedAt = System.currentTimeMillis()
             ProxyState.setShouldRun(this, true)
             scheduleWatchdog(this)
             scope.launch { runPipeline() }
@@ -138,7 +143,7 @@ class ProxyService : Service() {
             }
             Log.i(TAG, "createGroup waited=${waited}ms ok=$createOk msg=$createMsg")
             if (!createOk) {
-                Telemetry.send(this, "proxy_error", mapOf("reason" to createMsg))
+                Telemetry.send(this, "proxy_error", mapOf("reason" to createMsg) + Telemetry.batteryInfo(this))
                 updateStatus("ERROR: $createMsg")
                 stopSelf()
                 return
@@ -164,7 +169,7 @@ class ProxyService : Service() {
                 if (formed) break
             }
             if (!formed) {
-                Telemetry.send(this, "proxy_error", mapOf("reason" to "group did not form"))
+                Telemetry.send(this, "proxy_error", mapOf("reason" to "group did not form") + Telemetry.batteryInfo(this))
                 updateStatus("ERROR: group did not form")
                 stopSelf()
                 return
@@ -190,7 +195,7 @@ class ProxyService : Service() {
                 AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
                 updateStatus("RUNNING (HTTP) - connect to '$actualSsid' then HTTP proxy $goIp:${config.httpPort}")
                 updateNotification(actualSsid, actualPass, goIp, config.httpPort)
-                Telemetry.send(this, "proxy_started", mapOf("mode" to "http", "port" to "${config.httpPort}", "wifi_auto_ok" to "$wifiOk"))
+                Telemetry.send(this, "proxy_started", mapOf("mode" to "http", "port" to "${config.httpPort}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
             } else {
                 updateStatus("Starting SOCKS5 proxy on $goIp:${config.port}...")
                 socks = Socks5Server(
@@ -202,10 +207,11 @@ class ProxyService : Service() {
                 AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
                 updateStatus("RUNNING - connect to '$actualSsid' then SOCKS5 $goIp:${config.port}")
                 updateNotification(actualSsid, actualPass, goIp, config.port)
-                Telemetry.send(this, "proxy_started", mapOf("mode" to "socks5", "port" to "${config.port}", "wifi_auto_ok" to "$wifiOk"))
+                Telemetry.send(this, "proxy_started", mapOf("mode" to "socks5", "port" to "${config.port}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
             }
 
-            // client count poller
+            // client count poller + health heartbeat (every 5 min)
+            var beats = 0
             while (currentCoroutineContext().isActive && started.get()) {
                 delay(5000)
                 p2p.requestGroupInfo { g ->
@@ -213,10 +219,24 @@ class ProxyService : Service() {
                     AppState.apInfo.value = AppState.apInfo.value.copy(clients = n)
                     AppState.status.value = "RUNNING - clients connected: $n"
                 }
+                beats++
+                if (beats % 60 == 0) {
+                    Telemetry.send(
+                        this,
+                        "heartbeat",
+                        mapOf(
+                            "uptime" to uptimeSeconds(),
+                            "clients" to "${AppState.apInfo.value.clients}",
+                            "mode" to (if (httpMode) "http" else "socks5"),
+                            "port" to "${if (httpMode) config.httpPort else config.port}",
+                            "running" to "true"
+                        ) + Telemetry.batteryInfo(this)
+                    )
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "pipeline error", e)
-            Telemetry.send(this, "proxy_error", mapOf("reason" to (e.message ?: "unknown")))
+            Telemetry.send(this, "proxy_error", mapOf("reason" to (e.message ?: "unknown")) + Telemetry.batteryInfo(this))
             updateStatus("ERROR: ${e.message}")
             stopSelf()
         }
@@ -242,6 +262,7 @@ class ProxyService : Service() {
     private fun restartProxy() {
         if (!started.get()) return
         scope.launch {
+            Telemetry.send(this@ProxyService, "proxy_restart", mapOf("reason" to "config_changed", "uptime" to uptimeSeconds()) + Telemetry.batteryInfo(this@ProxyService))
             updateStatus("Config changed, restarting...")
             runCatching { socks?.stop() }
             runCatching { http?.stop() }
@@ -258,7 +279,7 @@ class ProxyService : Service() {
         started.set(false)
         ProxyState.setShouldRun(this, false)
         cancelWatchdog(this)
-        Telemetry.send(this, "proxy_stopped")
+        Telemetry.send(this, "proxy_stopped", mapOf("uptime" to uptimeSeconds()) + Telemetry.batteryInfo(this))
         restartJob?.cancel()
         runCatching { fileObserver?.stopWatching() }
         runCatching { socks?.stop() }

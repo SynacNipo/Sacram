@@ -1,6 +1,7 @@
 package com.sacram.proxy
 
 import android.content.Context
+import android.os.BatteryManager
 import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +18,17 @@ import java.net.URL
 object Telemetry {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    fun batteryInfo(context: Context): Map<String, String> {
+        return try {
+            val bm = context.applicationContext.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+            val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            val charging = bm.isCharging
+            mapOf("battery" to "$level", "charging" to "$charging")
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
 
     fun send(context: Context, event: String, extra: Map<String, String> = emptyMap()) {
         val cfg = ConfigManager.load(context)

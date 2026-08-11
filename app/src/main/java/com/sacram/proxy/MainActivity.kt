@@ -143,7 +143,7 @@ tvStatus = findViewById(R.id.tvStatus)
                                 "status" to AppState.status.value,
                                 "clients" to "${AppState.apInfo.value.clients}",
                                 "telemetry_enabled" to "${cfg.telemetryEnabled}"
-                            )
+                            ) + Telemetry.batteryInfo(this@MainActivity)
                         )
                     }
                 }
