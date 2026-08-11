@@ -56,6 +56,11 @@ class MainActivity : AppCompatActivity() {
         etPass.setText(config.password)
         etPort.setText(config.port.toString())
 
+        // Force setting a WiFi password on launch before anything else
+        if (config.password.length !in 8..63) {
+            showPasswordPrompt()
+        }
+
         btnToggle.setOnClickListener {
             if (AppState.running.value) {
                 stopService(Intent(this, ProxyService::class.java))
@@ -134,6 +139,12 @@ class MainActivity : AppCompatActivity() {
         if (pass.length < 8 || pass.length > 63) {
             showPasswordPrompt()
         } else {
+            val current = ConfigManager.load(this)
+            val port = etPort.text.toString().toIntOrNull() ?: current.port
+            val ssid = etSsid.text.toString()
+            if (pass != current.password || ssid != current.ssid || port != current.port) {
+                ConfigManager.save(this, AppConfig(ssid, pass, port))
+            }
             checkPermissionsAndStart()
         }
     }
@@ -143,15 +154,21 @@ class MainActivity : AppCompatActivity() {
         val etDialogSsid = view.findViewById<EditText>(R.id.etDialogSsid)
         val etDialogPass = view.findViewById<EditText>(R.id.etDialogPass)
         etDialogSsid.setText(etSsid.text.toString())
-        etDialogPass.setText(etPass.text.toString())
+        etDialogPass.setText("")
 
         val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle("Set WiFi password")
-            .setMessage("Password must be 8-63 characters. The proxy will not start without a valid password.")
+            .setMessage("Password must be 8-63 characters. This cannot be skipped - clients need it to join the hotspot.")
             .setView(view)
             .setPositiveButton("Save & Start", null)
-            .setNegativeButton("Cancel", null)
             .create()
+
+        // Cannot be ignored: no back button, no outside tap, no cancel
+        dialog.setCancelable(false)
+        dialog.setCanceledOnTouchOutside(false)
+        dialog.setOnKeyListener { _, keyCode, _ ->
+            keyCode == android.view.KeyEvent.KEYCODE_BACK
+        }
 
         dialog.setOnShowListener {
             dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -166,7 +183,9 @@ class MainActivity : AppCompatActivity() {
                 etSsid.setText(s)
                 etPass.setText(p)
                 dialog.dismiss()
-                checkPermissionsAndStart()
+                if (AppState.running.value) {
+                    Toast.makeText(this, "Password saved. Restart the proxy to apply.", Toast.LENGTH_LONG).show()
+                }
             }
         }
         dialog.show()

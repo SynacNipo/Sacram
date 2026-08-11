@@ -15,7 +15,7 @@ object ConfigManager {
     private const val DIR_NAME = "Sacram"
     private const val FILE_NAME = "config.txt"
 
-    val defaultConfig = AppConfig("SacramAP", "sacram1234", 1080)
+    val defaultConfig = AppConfig("SacramAP", "", 1080)
 
     fun internalConfigFile(context: Context): File {
         val dir = File(context.filesDir, DIR_NAME)
