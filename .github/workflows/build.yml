@@ -14,6 +14,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,26 +35,33 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Compute next release tag
+      - name: Rename APK to sacram.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/sacram.apk
+
+      - name: Compute next free release tag
         id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           latest=$(gh release list --json tagName -q '.[].tagName' | sort -V | tail -1)
           if [ -z "$latest" ]; then
-            tag="v1.0"
-          else
-            major=$(echo "$latest" | sed 's/v\([0-9]*\)\..*/\1/')
-            minor=$(echo "$latest" | sed 's/v[0-9]*\.\([0-9]*\).*/\1/')
-            minor=$((minor + 1))
-            tag="v$major.$minor"
+            latest="v0.0"
           fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          major=$(echo "$latest" | sed 's/v\([0-9]*\)\..*/\1/')
+          minor=$(echo "$latest" | sed 's/v[0-9]*\.\([0-9]*\).*/\1/')
+          next="v$major.$((minor + 1))"
+          while gh release view "$next" >/dev/null 2>&1; do
+            minor=$((minor + 1))
+            next="v$major.$minor"
+          done
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
 
       - name: Publish release (auto-incremented tag)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ steps.tag.outputs.tag }}" \
-            app/build/outputs/apk/debug/app-debug.apk \
+            app/build/outputs/apk/debug/sacram.apk \
             --title "${{ steps.tag.outputs.tag }}" \
             --notes "Automatic build from commit ${{ github.sha }}"
 
@@ -60,5 +69,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sacram-udp-bridge-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/sacram.apk
           retention-days: 14

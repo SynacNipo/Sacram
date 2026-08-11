@@ -250,7 +250,7 @@ class ProxyService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat)
+            .setSmallIcon(R.drawable.ic_stat_s)
             .setContentTitle("Sacram UDP Proxy")
             .setContentText("Running - see app for connection details")
             .setContentIntent(contentIntent)
@@ -263,7 +263,7 @@ class ProxyService : Service() {
     private fun updateNotification(ssid: String, pass: String, ip: String, port: Int) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notif = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat)
+            .setSmallIcon(R.drawable.ic_stat_s)
             .setContentTitle("Sacram UDP Proxy - RUNNING")
             .setContentText("$ssid | $ip:$port | pass: $pass")
             .setStyle(NotificationCompat.BigTextStyle().bigText("SSID: $ssid\nIP: $ip:$port\nPassword: $pass"))
