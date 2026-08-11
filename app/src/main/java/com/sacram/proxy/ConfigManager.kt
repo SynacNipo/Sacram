@@ -89,23 +89,6 @@ object ConfigManager {
         }
     }
 
-    /** Save ssid/password/port while keeping mode and telemetry fields from the previous config. */
-    fun saveSettings(context: Context, ssid: String, password: String, port: Int): AppConfig {
-        val prev = load(context)
-        val next = AppConfig(
-            ssid = ssid,
-            password = password,
-            port = port,
-            proxyMode = prev.proxyMode,
-            httpPort = prev.httpPort,
-            telemetryPrompted = prev.telemetryPrompted,
-            telemetryEnabled = prev.telemetryEnabled,
-            collectorUrl = prev.collectorUrl
-        )
-        save(context, next)
-        return next
-    }
-
     fun save(context: Context, config: AppConfig) {
         val file = internalConfigFile(context)
         val lines = listOf(

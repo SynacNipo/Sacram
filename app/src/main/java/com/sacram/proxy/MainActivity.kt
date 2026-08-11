@@ -1,7 +1,6 @@
 package com.sacram.proxy
 
 import android.Manifest
-import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -15,7 +14,6 @@ import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
-import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -96,12 +94,12 @@ tvStatus = findViewById(R.id.tvStatus)
         setupTabs()
         setupAutosave()
 
-        // Force setting a WiFi password on launch before anything else
+        // Notify if no valid password is set, but don't block anything
         if (config.password.length !in 8..63) {
-            showPasswordPrompt()
-        } else {
-            maybeShowTelemetryPrompt()
+            Log.w(TAG, "no valid password set yet - will error on start until set")
+            tvStatus.text = "Stopped - set a WiFi password (8-63 chars) first"
         }
+        maybeShowTelemetryPrompt()
 
         btnToggle.setOnClickListener {
             if (AppState.running.value) {
@@ -252,54 +250,15 @@ tvStatus = findViewById(R.id.tvStatus)
         val pass = etPass.text.toString()
         Log.i(TAG, "START($mode) clicked - passLen=${pass.length}")
         if (pass.length < 8 || pass.length > 63) {
-            showPasswordPrompt()
+            Log.w(TAG, "password invalid -> refusing to start")
+            tvStatus.text = "ERROR: set a WiFi password (8-63 chars) first"
+            Toast.makeText(this, "Set a WiFi password (8-63 chars) before starting", Toast.LENGTH_LONG).show()
             return
         }
         val prev = ConfigManager.load(this)
         ConfigManager.save(this, prev.copy(proxyMode = mode))
         autosave()
         checkPermissionsAndStart()
-    }
-
-    private fun showPasswordPrompt() {
-        val view = layoutInflater.inflate(R.layout.dialog_password, null)
-        val etDialogSsid = view.findViewById<EditText>(R.id.etDialogSsid)
-        val etDialogPass = view.findViewById<EditText>(R.id.etDialogPass)
-        etDialogSsid.setText(etSsid.text.toString())
-        etDialogPass.setText("")
-
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle("Set WiFi password")
-            .setMessage("Password must be 8-63 characters. This cannot be skipped - clients need it to join the hotspot.")
-            .setView(view)
-            .setPositiveButton("Save & Start", null)
-            .create()
-
-        // Cannot be ignored: no back button, no outside tap, no cancel
-        dialog.setCancelable(false)
-        dialog.setCanceledOnTouchOutside(false)
-        dialog.setOnKeyListener { _, keyCode, _ -> keyCode == KeyEvent.KEYCODE_BACK }
-
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val p = etDialogPass.text.toString()
-                val s = etDialogSsid.text.toString()
-                if (p.length < 8 || p.length > 63) {
-                    Toast.makeText(this, "Password must be 8-63 characters", Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
-                }
-                val port = etPort.text.toString().toIntOrNull() ?: 1080
-                ConfigManager.saveSettings(this, s, p, port)
-                etSsid.setText(s)
-                etPass.setText(p)
-                dialog.dismiss()
-                maybeShowTelemetryPrompt()
-                if (AppState.running.value) {
-                    Toast.makeText(this, "Password saved. Restart the proxy to apply.", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-        dialog.show()
     }
 
     private fun maybeShowTelemetryPrompt() {
