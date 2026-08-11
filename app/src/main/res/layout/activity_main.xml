@@ -28,6 +28,11 @@
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:text="HTTP" />
+
+            <com.google.android.material.tabs.TabItem
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:text="Keep-Alive" />
         </com.google.android.material.tabs.TabLayout>
 
@@ -136,7 +141,67 @@
 
         </LinearLayout>
 
-        <!-- ============ TAB 2: KEEP-ALIVE ============ -->
+        <!-- ============ TAB 2: HTTP ============ -->
+        <LinearLayout
+            android:id="@+id/tabHttp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvHttpStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_status"
+                android:padding="14dp"
+                android:text="Stopped"
+                android:textIsSelectable="true"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnHttpToggle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="START HTTP PROXY" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:text="HTTP proxy settings (auto-saved)"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilHttpPort"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="HTTP Port (TCP only, no UDP)">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etHttpPort"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="HTTP mode helps when mihomo/Clash TUN is not needed - point the client at http://192.168.49.1:8282"
+                android:textSize="12sp"
+                android:textColor="#757575"
+                android:textIsSelectable="true" />
+
+        </LinearLayout>
+
+        <!-- ============ TAB 3: KEEP-ALIVE ============ -->
         <LinearLayout
             android:id="@+id/tabKeepalive"
             android:layout_width="match_parent"

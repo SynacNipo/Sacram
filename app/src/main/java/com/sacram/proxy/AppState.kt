@@ -13,4 +13,5 @@ object AppState {
     val status = MutableStateFlow("Stopped")
     val apInfo = MutableStateFlow(ApInfo())
     val running = MutableStateFlow(false)
+    val httpMode = MutableStateFlow(false)
 }

@@ -8,6 +8,8 @@ data class AppConfig(
     val ssid: String,
     val password: String,
     val port: Int,
+    val proxyMode: String = "socks5",
+    val httpPort: Int = 8282,
     val telemetryPrompted: Boolean = false,
     val telemetryEnabled: Boolean = false,
     val collectorUrl: String = "https://sacram-telemetry.synacnipo.workers.dev"
@@ -73,6 +75,10 @@ object ConfigManager {
                 ssid = p.getProperty("ssid", defaultConfig.ssid),
                 password = p.getProperty("password", defaultConfig.password),
                 port = p.getProperty("port", defaultConfig.port.toString()).toIntOrNull() ?: defaultConfig.port,
+                proxyMode = p.getProperty("proxy_mode", defaultConfig.proxyMode)
+                    .ifBlank { defaultConfig.proxyMode },
+                httpPort = p.getProperty("http_port", defaultConfig.httpPort.toString()).toIntOrNull()
+                    ?: defaultConfig.httpPort,
                 telemetryPrompted = p.getProperty("telemetry_prompted", "false").toBoolean(),
                 telemetryEnabled = p.getProperty("telemetry_enabled", "false").toBoolean(),
                 collectorUrl = p.getProperty("collector_url", defaultConfig.collectorUrl)
@@ -83,13 +89,15 @@ object ConfigManager {
         }
     }
 
-    /** Save ssid/password/port while keeping telemetry fields from the previous config. */
+    /** Save ssid/password/port while keeping mode and telemetry fields from the previous config. */
     fun saveSettings(context: Context, ssid: String, password: String, port: Int): AppConfig {
         val prev = load(context)
         val next = AppConfig(
             ssid = ssid,
             password = password,
             port = port,
+            proxyMode = prev.proxyMode,
+            httpPort = prev.httpPort,
             telemetryPrompted = prev.telemetryPrompted,
             telemetryEnabled = prev.telemetryEnabled,
             collectorUrl = prev.collectorUrl
@@ -106,6 +114,8 @@ object ConfigManager {
             "ssid=${config.ssid}",
             "password=${config.password}",
             "port=${config.port}",
+            "proxy_mode=${config.proxyMode}",
+            "http_port=${config.httpPort}",
             "telemetry_prompted=${config.telemetryPrompted}",
             "telemetry_enabled=${config.telemetryEnabled}",
             "collector_url=${config.collectorUrl}"

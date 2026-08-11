@@ -49,6 +49,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etSsid: EditText
     private lateinit var etPass: EditText
     private lateinit var etPort: EditText
+    private lateinit var tvHttpStatus: TextView
+    private lateinit var btnHttpToggle: Button
+    private lateinit var etHttpPort: EditText
 
     private val saveHandler = Handler(Looper.getMainLooper())
     private val autosaveRunnable = Runnable { autosave() }
@@ -71,20 +74,22 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        tvStatus = findViewById(R.id.tvStatus)
+tvStatus = findViewById(R.id.tvStatus)
         tvInfo = findViewById(R.id.tvInfo)
         tvSaved = findViewById(R.id.tvSaved)
         btnToggle = findViewById(R.id.btnToggle)
         etSsid = findViewById(R.id.etSsid)
         etPass = findViewById(R.id.etPass)
         etPort = findViewById(R.id.etPort)
+        tvHttpStatus = findViewById(R.id.tvHttpStatus)
+        btnHttpToggle = findViewById(R.id.btnHttpToggle)
+        etHttpPort = findViewById(R.id.etHttpPort)
 
         val config = ConfigManager.ensureConfig(this)
-        Log.i(TAG, "onCreate - loaded config ssid=${config.ssid} passLen=${config.password.length} port=${config.port} tel=${config.telemetryEnabled}")
-        Telemetry.send(this, "app_launched", mapOf("config_file" to "true"))
         etSsid.setText(config.ssid)
         etPass.setText(config.password)
         etPort.setText(config.port.toString())
+        etHttpPort.setText(config.httpPort.toString())
         findViewById<TextView>(R.id.tvConfigPath).text =
             "config.txt: ${ConfigManager.externalConfigFile(this).absolutePath}"
 
@@ -102,7 +107,15 @@ class MainActivity : AppCompatActivity() {
             if (AppState.running.value) {
                 stopService(Intent(this, ProxyService::class.java))
             } else {
-                onStartClicked()
+                setModeAndStart("socks5")
+            }
+        }
+
+        btnHttpToggle.setOnClickListener {
+            if (AppState.running.value) {
+                stopService(Intent(this, ProxyService::class.java))
+            } else {
+                setModeAndStart("http")
             }
         }
 
@@ -112,7 +125,7 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                launch { AppState.status.collect { tvStatus.text = it } }
+                launch { AppState.status.collect { tvStatus.text = it; tvHttpStatus.text = it } }
                 launch { AppState.apInfo.collect { renderInfo(it) } }
                 launch { AppState.running.collect { renderRunning(it) } }
                 launch {
@@ -150,11 +163,13 @@ class MainActivity : AppCompatActivity() {
     private fun setupTabs() {
         val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
         val tabProxy = findViewById<LinearLayout>(R.id.tabProxy)
+        val tabHttp = findViewById<LinearLayout>(R.id.tabHttp)
         val tabKeepalive = findViewById<LinearLayout>(R.id.tabKeepalive)
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 tabProxy.visibility = if (tab.position == 0) View.VISIBLE else View.GONE
-                tabKeepalive.visibility = if (tab.position == 1) View.VISIBLE else View.GONE
+                tabHttp.visibility = if (tab.position == 1) View.VISIBLE else View.GONE
+                tabKeepalive.visibility = if (tab.position == 2) View.VISIBLE else View.GONE
             }
 
             override fun onTabUnselected(tab: TabLayout.Tab) {}
@@ -175,12 +190,14 @@ class MainActivity : AppCompatActivity() {
         etSsid.addTextChangedListener(watcher)
         etPass.addTextChangedListener(watcher)
         etPort.addTextChangedListener(watcher)
+        etHttpPort.addTextChangedListener(watcher)
     }
 
     private fun autosave() {
         val pass = etPass.text.toString()
         val ssid = etSsid.text.toString().trim()
         val port = etPort.text.toString().toIntOrNull()
+        val httpPort = etHttpPort.text.toString().toIntOrNull()
         if (pass.length !in 8..63) {
             tvSaved.setTextColor(0xFFC62828.toInt())
             tvSaved.text = "Password must be 8-63 characters - not saved yet"
@@ -191,11 +208,20 @@ class MainActivity : AppCompatActivity() {
             tvSaved.text = "Invalid port - not saved yet"
             return
         }
-        ConfigManager.saveSettings(
+        if (httpPort == null || httpPort < 1 || httpPort > 65535) {
+            tvSaved.setTextColor(0xFFC62828.toInt())
+            tvSaved.text = "Invalid HTTP port - not saved yet"
+            return
+        }
+        val prev = ConfigManager.load(this)
+        ConfigManager.save(
             this,
-            ssid.ifEmpty { ConfigManager.defaultConfig.ssid },
-            pass,
-            port
+            prev.copy(
+                ssid = ssid.ifEmpty { ConfigManager.defaultConfig.ssid },
+                password = pass,
+                port = port,
+                httpPort = httpPort
+            )
         )
         tvSaved.setTextColor(0xFF2E7D32.toInt())
         val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
@@ -203,7 +229,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderRunning(running: Boolean) {
+        val httpMode = AppState.httpMode.value
         btnToggle.text = if (running) "STOP PROXY" else "START PROXY"
+        btnHttpToggle.text = if (running) "STOP HTTP PROXY" else "START HTTP PROXY"
+        btnHttpToggle.isEnabled = !running || httpMode
     }
 
     private fun renderInfo(info: ApInfo) {
@@ -219,16 +248,17 @@ class MainActivity : AppCompatActivity() {
         """.trimIndent()
     }
 
-    private fun onStartClicked() {
+    private fun setModeAndStart(mode: String) {
         val pass = etPass.text.toString()
-        Log.i(TAG, "START clicked - passLen=${pass.length}, running=${AppState.running.value}")
+        Log.i(TAG, "START($mode) clicked - passLen=${pass.length}")
         if (pass.length < 8 || pass.length > 63) {
-            Log.w(TAG, "password invalid -> showing prompt")
             showPasswordPrompt()
-        } else {
-            autosave()
-            checkPermissionsAndStart()
+            return
         }
+        val prev = ConfigManager.load(this)
+        ConfigManager.save(this, prev.copy(proxyMode = mode))
+        autosave()
+        checkPermissionsAndStart()
     }
 
     private fun showPasswordPrompt() {

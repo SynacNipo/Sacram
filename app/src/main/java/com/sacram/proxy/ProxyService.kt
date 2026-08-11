@@ -39,6 +39,7 @@ class ProxyService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
     private var socks: Socks5Server? = null
+    private var http: HttpProxyServer? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var fileObserver: FileObserver? = null
@@ -141,20 +142,35 @@ class ProxyService : Service() {
             val actualPass = groupPass.ifEmpty { config.password }
             Log.i(TAG, "group formed ssid=$actualSsid goIp=$goIp")
 
-            updateStatus("Starting SOCKS5 proxy on $goIp:$config.port...")
-            val server = Socks5Server(
-                port = config.port,
-                advertiseIp = goIp,
-                onLog = { updateStatus("  $it") }
-            )
-            socks = server
-            server.start()
-            Log.i(TAG, "SOCKS5 started on $goIp:${config.port}")
+            val httpMode = config.proxyMode == "http"
+            AppState.httpMode.value = httpMode
 
-            AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
-            updateStatus("RUNNING - connect to '$actualSsid' then SOCKS5 $goIp:${config.port}")
-            updateNotification(actualSsid, actualPass, goIp, config.port)
-            Telemetry.send(this, "proxy_started", mapOf("port" to "${config.port}", "wifi_auto_ok" to "$wifiOk"))
+            if (httpMode) {
+                updateStatus("Starting HTTP proxy on $goIp:${config.httpPort}...")
+                val server = HttpProxyServer(
+                    port = config.httpPort,
+                    onLog = { updateStatus("  $it") }
+                )
+                http = server
+                server.start()
+                Log.i(TAG, "HTTP proxy started on $goIp:${config.httpPort}")
+                AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
+                updateStatus("RUNNING (HTTP) - connect to '$actualSsid' then HTTP proxy $goIp:${config.httpPort}")
+                updateNotification(actualSsid, actualPass, goIp, config.httpPort)
+                Telemetry.send(this, "proxy_started", mapOf("mode" to "http", "port" to "${config.httpPort}", "wifi_auto_ok" to "$wifiOk"))
+            } else {
+                updateStatus("Starting SOCKS5 proxy on $goIp:${config.port}...")
+                socks = Socks5Server(
+                    port = config.port,
+                    advertiseIp = goIp,
+                    onLog = { updateStatus("  $it") }
+                ).also { it.start() }
+                Log.i(TAG, "SOCKS5 started on $goIp:${config.port}")
+                AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
+                updateStatus("RUNNING - connect to '$actualSsid' then SOCKS5 $goIp:${config.port}")
+                updateNotification(actualSsid, actualPass, goIp, config.port)
+                Telemetry.send(this, "proxy_started", mapOf("mode" to "socks5", "port" to "${config.port}", "wifi_auto_ok" to "$wifiOk"))
+            }
 
             // client count poller
             while (currentCoroutineContext().isActive && started.get()) {
@@ -195,7 +211,9 @@ class ProxyService : Service() {
         scope.launch {
             updateStatus("Config changed, restarting...")
             runCatching { socks?.stop() }
+            runCatching { http?.stop() }
             socks = null
+            http = null
             val p2p = WifiDirectManager(this@ProxyService)
             p2p.removeGroup { }
             delay(1500)
@@ -209,11 +227,14 @@ class ProxyService : Service() {
         restartJob?.cancel()
         runCatching { fileObserver?.stopWatching() }
         runCatching { socks?.stop() }
+        runCatching { http?.stop() }
         socks = null
+        http = null
         runCatching { WifiDirectManager(this).removeGroup() }
         releaseLocks()
         scope.cancel()
         AppState.running.value = false
+        AppState.httpMode.value = false
         AppState.status.value = "Stopped"
         AppState.apInfo.value = ApInfo()
         super.onDestroy()
