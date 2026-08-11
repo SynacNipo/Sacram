@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.FileObserver
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,7 @@ class ProxyService : Service() {
         const val NOTIF_ID = 1
         const val ACTION_START = "com.sacram.proxy.START"
         const val ACTION_STOP = "com.sacram.proxy.STOP"
+        private const val TAG = "SacramService"
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -46,8 +48,14 @@ class ProxyService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "onCreate")
         createChannel()
-        startForegroundCompat()
+        try {
+            startForegroundCompat()
+        } catch (e: Exception) {
+            Log.e(TAG, "startForeground failed", e)
+            Telemetry.send(this, "foreground_start_failed", mapOf("reason" to (e.message ?: "unknown")))
+        }
         acquireLocks()
         startFileWatcher()
     }
@@ -64,6 +72,7 @@ class ProxyService : Service() {
     }
 
     private suspend fun runPipeline() {
+        Log.i(TAG, "runPipeline start, sdk=${Build.VERSION.SDK_INT}, model=${Build.MODEL}")
         updateStatus("Starting...")
         try {
             val config = ConfigManager.ensureConfig(this)
@@ -72,6 +81,7 @@ class ProxyService : Service() {
             AppState.running.value = true
             updateStatus("Enabling WiFi...")
             val wifiOk = WifiDirectManager(this@ProxyService).ensureWifiOn()
+            Log.i(TAG, "ensureWifiOn result=$wifiOk")
             if (!wifiOk) {
                 updateStatus("Note: could not auto-enable WiFi (some Android versions block it) - trying anyway")
             }
@@ -85,12 +95,14 @@ class ProxyService : Service() {
                 p2p.createGroup(config.ssid, config.password) { ok, msg ->
                     createOk = ok
                     createMsg = msg
+                    Log.i(TAG, "createGroup result ok=$ok msg=$msg")
                 }
             }
             var waited = 0
             while (!createOk && waited < 5000) {
                 delay(200); waited += 200
             }
+            Log.i(TAG, "createGroup waited=${waited}ms ok=$createOk msg=$createMsg")
             if (!createOk) {
                 Telemetry.send(this, "proxy_error", mapOf("reason" to createMsg))
                 updateStatus("ERROR: $createMsg")
@@ -127,6 +139,7 @@ class ProxyService : Service() {
             val goIp = p2p.getGroupOwnerIp()
             val actualSsid = groupSsid.ifEmpty { config.ssid }
             val actualPass = groupPass.ifEmpty { config.password }
+            Log.i(TAG, "group formed ssid=$actualSsid goIp=$goIp")
 
             updateStatus("Starting SOCKS5 proxy on $goIp:$config.port...")
             val server = Socks5Server(
@@ -136,6 +149,7 @@ class ProxyService : Service() {
             )
             socks = server
             server.start()
+            Log.i(TAG, "SOCKS5 started on $goIp:${config.port}")
 
             AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
             updateStatus("RUNNING - connect to '$actualSsid' then SOCKS5 $goIp:${config.port}")
@@ -152,6 +166,7 @@ class ProxyService : Service() {
                 }
             }
         } catch (e: Exception) {
+            Log.e(TAG, "pipeline error", e)
             Telemetry.send(this, "proxy_error", mapOf("reason" to (e.message ?: "unknown")))
             updateStatus("ERROR: ${e.message}")
             stopSelf()

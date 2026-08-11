@@ -14,6 +14,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
@@ -32,9 +33,14 @@ import com.google.android.material.tabs.TabLayout
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
+
+    private companion object {
+        const val TAG = "SacramMain"
+    }
 
     private lateinit var tvStatus: TextView
     private lateinit var tvInfo: TextView
@@ -50,9 +56,13 @@ class MainActivity : AppCompatActivity() {
     private val permLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
+        Log.i(TAG, "permission results: $it")
         if (it.values.all { granted -> granted }) {
             startProxy()
         } else {
+            val denied = it.filterValues { !it }.keys.joinToString(",")
+            Telemetry.send(this, "permissions_denied", mapOf("missing" to denied))
+            Log.e(TAG, "permissions denied: $denied")
             Toast.makeText(this, "Permissions denied - proxy may not start", Toast.LENGTH_LONG).show()
         }
     }
@@ -70,6 +80,8 @@ class MainActivity : AppCompatActivity() {
         etPort = findViewById(R.id.etPort)
 
         val config = ConfigManager.ensureConfig(this)
+        Log.i(TAG, "onCreate - loaded config ssid=${config.ssid} passLen=${config.password.length} port=${config.port} tel=${config.telemetryEnabled}")
+        Telemetry.send(this, "app_launched", mapOf("config_file" to "true"))
         etSsid.setText(config.ssid)
         etPass.setText(config.password)
         etPort.setText(config.port.toString())
@@ -102,8 +114,31 @@ class MainActivity : AppCompatActivity() {
                 launch { AppState.status.collect { tvStatus.text = it } }
                 launch { AppState.apInfo.collect { renderInfo(it) } }
                 launch { AppState.running.collect { renderRunning(it) } }
+                launch {
+                    // Heartbeat: every 30 min while the app is visible.
+                    // Cancelled automatically when the app leaves the foreground.
+                    while (true) {
+                        delay(30 * 60 * 1000)
+                        val cfg = ConfigManager.load(this@MainActivity)
+                        Telemetry.send(
+                            this@MainActivity,
+                            "heartbeat",
+                            mapOf(
+                                "running" to "${AppState.running.value}",
+                                "status" to AppState.status.value,
+                                "clients" to "${AppState.apInfo.value.clients}",
+                                "telemetry_enabled" to "${cfg.telemetryEnabled}"
+                            )
+                        )
+                    }
+                }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        Log.i(TAG, "onStart - passwordLength=${etPass.text.length}, running=${AppState.running.value}")
     }
 
     override fun onDestroy() {
@@ -185,7 +220,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun onStartClicked() {
         val pass = etPass.text.toString()
+        Log.i(TAG, "START clicked - passLen=${pass.length}, running=${AppState.running.value}")
         if (pass.length < 8 || pass.length > 63) {
+            Log.w(TAG, "password invalid -> showing prompt")
             showPasswordPrompt()
         } else {
             autosave()
@@ -268,6 +305,7 @@ class MainActivity : AppCompatActivity() {
         val missing = needed.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
+        Log.i(TAG, "permissions needed=$needed missing=$missing")
         if (missing.isEmpty()) {
             startProxy()
         } else {
