@@ -10,7 +10,7 @@ data class AppConfig(
     val port: Int,
     val telemetryPrompted: Boolean = false,
     val telemetryEnabled: Boolean = false,
-    val collectorUrl: String = "https://sacram-telemetry.up.railway.app"
+    val collectorUrl: String = "https://sacram-telemetry.synacnipo.workers.dev"
 )
 
 object ConfigManager {
