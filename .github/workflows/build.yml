@@ -11,8 +11,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run-build: ${{ steps.check.outputs.run-build }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check for [Trigger] in latest commit message
+        id: check
+        run: |
+          msg=$(git log -1 --format=%s)
+          if echo "$msg" | grep -q "\[Trigger\]"; then
+            echo "run-build=true" >> "$GITHUB_OUTPUT"
+            echo "Commit contains [Trigger] -> building"
+          else
+            echo "run-build=false" >> "$GITHUB_OUTPUT"
+            echo "No [Trigger] in commit: $msg -> skipping build"
+          fi
+
   build:
     runs-on: ubuntu-latest
+    needs: gate
+    if: needs.gate.outputs.run-build == 'true'
     timeout-minutes: 30
     permissions:
       contents: write
