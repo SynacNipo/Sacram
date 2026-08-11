@@ -64,7 +64,8 @@ class MainActivity : AppCompatActivity() {
             val denied = it.filterValues { !it }.keys.joinToString(",")
             Telemetry.send(this, "permissions_denied", mapOf("missing" to denied))
             Log.e(TAG, "permissions denied: $denied")
-            Toast.makeText(this, "Permissions denied - proxy may not start", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Some permissions denied - starting anyway, WiFi Direct may fail", Toast.LENGTH_LONG).show()
+            startProxy()
         }
     }
 
@@ -103,6 +104,7 @@ tvStatus = findViewById(R.id.tvStatus)
 
         btnToggle.setOnClickListener {
             if (AppState.running.value) {
+                ProxyState.setShouldRun(this, false)
                 stopService(Intent(this, ProxyService::class.java))
             } else {
                 setModeAndStart("socks5")
@@ -111,6 +113,7 @@ tvStatus = findViewById(R.id.tvStatus)
 
         btnHttpToggle.setOnClickListener {
             if (AppState.running.value) {
+                ProxyState.setShouldRun(this, false)
                 stopService(Intent(this, ProxyService::class.java))
             } else {
                 setModeAndStart("http")
@@ -290,7 +293,6 @@ tvStatus = findViewById(R.id.tvStatus)
         needed.add(Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             needed.add(Manifest.permission.NEARBY_WIFI_DEVICES)
-            needed.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         val missing = needed.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
@@ -337,8 +339,9 @@ tvStatus = findViewById(R.id.tvStatus)
 
     private fun openAutostartSettings() {
         val intents = listOf(
-            Intent().setClassName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
+            Intent().setClassName("com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
             Intent().setClassName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+            Intent().setClassName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
         )
         for (i in intents) {

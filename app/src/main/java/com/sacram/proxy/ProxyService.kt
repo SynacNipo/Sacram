@@ -1,5 +1,6 @@
 package com.sacram.proxy
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -13,6 +14,7 @@ import android.os.Build
 import android.os.FileObserver
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +36,33 @@ class ProxyService : Service() {
         const val ACTION_START = "com.sacram.proxy.START"
         const val ACTION_STOP = "com.sacram.proxy.STOP"
         private const val TAG = "SacramService"
+        private const val WATCHDOG_REQ = 7
+        private const val WATCHDOG_INTERVAL_MS = 60_000L
+
+        fun scheduleWatchdog(context: Context) {
+            val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val pi = PendingIntent.getBroadcast(
+                context, WATCHDOG_REQ,
+                Intent(context, WatchdogReceiver::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val trigger = SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL_MS
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, trigger, pi)
+            } else {
+                am.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, trigger, pi)
+            }
+        }
+
+        private fun cancelWatchdog(context: Context) {
+            val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val pi = PendingIntent.getBroadcast(
+                context, WATCHDOG_REQ,
+                Intent(context, WatchdogReceiver::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            am.cancel(pi)
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -63,10 +92,14 @@ class ProxyService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            ProxyState.setShouldRun(this, false)
+            cancelWatchdog(this)
             stopSelf()
             return START_NOT_STICKY
         }
         if (started.compareAndSet(false, true)) {
+            ProxyState.setShouldRun(this, true)
+            scheduleWatchdog(this)
             scope.launch { runPipeline() }
         }
         return START_STICKY
@@ -223,6 +256,8 @@ class ProxyService : Service() {
 
     override fun onDestroy() {
         started.set(false)
+        ProxyState.setShouldRun(this, false)
+        cancelWatchdog(this)
         Telemetry.send(this, "proxy_stopped")
         restartJob?.cancel()
         runCatching { fileObserver?.stopWatching() }
@@ -272,7 +307,7 @@ class ProxyService : Service() {
     private fun createChannel() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channel = NotificationChannel(
-            CHANNEL_ID, "Sacram Proxy", NotificationManager.IMPORTANCE_LOW
+            CHANNEL_ID, "Sacram Proxy", NotificationManager.IMPORTANCE_MIN
         ).apply {
             description = "Keeps the WiFi Direct UDP proxy alive"
         }
