@@ -1,4 +1,12 @@
 <resources>
     <string name="app_name">Sacram UDP Bridge</string>
-    <string name="help">HOW TO GET INTERNET (SYSTEMWIDE, TCP+UDP)\n\n1. Start proxy, then connect your PC/device to the Access Point SSID shown above.\n2. On the PC, install Clash Verge Rev (free, open source).\n   It captures ALL traffic systemwide via TUN mode: TCP, UDP and ICMP.\n3. In Clash Verge Rev add a proxy:\n   type: SOCKS5, server: (phone AP IP, usually 192.168.49.1),\n   port: (port above), udp: true.\n4. Enable TUN Mode (Settings -> TUN Mode) - requires admin once.\n   TUN captures everything: browsers, games, DNS, UDP apps.\nAlternatives: Netch or v2rayN (TUN mode) - all support systemwide UDP.\n\nVIVO Y16 KEEP-ALIVE:\n- Settings > More settings > Applications > Autostart > enable Sacram\n- Settings > Battery > High background power consumption > enable Sacram\n- Lock the app in the recent-apps list (padlock icon)\n- Battery > Battery optimization > set to "Not optimized"\n- Settings > Battery > Sleep Standby > exclude Sacram</string>
+    <string name="help">Full setup guide, PC client config and troubleshooting are on the
+GitHub Wiki: github.com/SynacNipo/Sacram/wiki
+
+Short version:
+1. START proxy - the app becomes a WiFi Direct hotspot.
+2. Connect your PC/device to the SSID shown on screen.
+3. On the PC use a TUN-mode client (mihomo / Clash Verge Rev)
+   pointing to socks5 address shown above - TUN is required for
+   systemwide TCP + UDP (games, DNS, UDP apps).</string>
 </resources>

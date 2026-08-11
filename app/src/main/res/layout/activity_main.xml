@@ -148,7 +148,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Keep Sacram alive on aggressive ROMs (Vivo / Funtouch)"
+                android:text="Keep Sacram alive on aggressive battery savers"
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
@@ -164,7 +164,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="VIVO AUTOSTART SETTINGS" />
+                android:text="AUTOSTART SETTINGS" />
+
+            <Button
+                android:id="@+id/btnWiki"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="OPEN SETUP GUIDE (WIKI)" />
 
             <TextView
                 android:layout_width="match_parent"

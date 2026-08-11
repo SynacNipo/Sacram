@@ -106,8 +106,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        findViewById<Button>(R.id.btnWiki).setOnClickListener { openWiki() }
         findViewById<Button>(R.id.btnBattery).setOnClickListener { requestBatteryExemption() }
-        findViewById<Button>(R.id.btnAutostart).setOnClickListener { openVivoAutostart() }
+        findViewById<Button>(R.id.btnAutostart).setOnClickListener { openAutostartSettings() }
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -337,9 +338,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun openVivoAutostart() {
+    private fun openWiki() {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/SynacNipo/Sacram/wiki")))
+        } catch (e: Exception) {
+            Toast.makeText(this, "No browser found", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun openAutostartSettings() {
         val intents = listOf(
-            Intent().setClassName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"),
+            Intent().setClassName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"),
+            Intent().setClassName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
         )
         for (i in intents) {
