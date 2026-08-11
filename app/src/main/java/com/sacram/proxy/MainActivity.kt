@@ -60,7 +60,7 @@ class MainActivity : AppCompatActivity() {
             if (AppState.running.value) {
                 stopService(Intent(this, ProxyService::class.java))
             } else {
-                checkPermissionsAndStart()
+                onStartClicked()
             }
         }
 
@@ -127,6 +127,49 @@ class MainActivity : AppCompatActivity() {
             )
         )
         Toast.makeText(this, "Saved to config.txt", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun onStartClicked() {
+        val pass = etPass.text.toString()
+        if (pass.length < 8 || pass.length > 63) {
+            showPasswordPrompt()
+        } else {
+            checkPermissionsAndStart()
+        }
+    }
+
+    private fun showPasswordPrompt() {
+        val view = layoutInflater.inflate(R.layout.dialog_password, null)
+        val etDialogSsid = view.findViewById<EditText>(R.id.etDialogSsid)
+        val etDialogPass = view.findViewById<EditText>(R.id.etDialogPass)
+        etDialogSsid.setText(etSsid.text.toString())
+        etDialogPass.setText(etPass.text.toString())
+
+        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle("Set WiFi password")
+            .setMessage("Password must be 8-63 characters. The proxy will not start without a valid password.")
+            .setView(view)
+            .setPositiveButton("Save & Start", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val p = etDialogPass.text.toString()
+                val s = etDialogSsid.text.toString()
+                if (p.length < 8 || p.length > 63) {
+                    Toast.makeText(this, "Password must be 8-63 characters", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val port = etPort.text.toString().toIntOrNull() ?: 1080
+                ConfigManager.save(this, AppConfig(s, p, port))
+                etSsid.setText(s)
+                etPass.setText(p)
+                dialog.dismiss()
+                checkPermissionsAndStart()
+            }
+        }
+        dialog.show()
     }
 
     private fun checkPermissionsAndStart() {
