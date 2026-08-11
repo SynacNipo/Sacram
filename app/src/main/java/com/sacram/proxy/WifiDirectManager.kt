@@ -65,10 +65,18 @@ class WifiDirectManager(private val context: Context) {
         receiver = null
     }
 
+    /**
+     * Try to auto-enable WiFi. On Android 13+ setWifiEnabled is blocked for apps,
+     * so failure here is NOT fatal - we proceed and let createGroup decide.
+     */
     fun ensureWifiOn(timeoutMs: Long = 15000): Boolean {
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
         if (wifi.isWifiEnabled) return true
-        wifi.isWifiEnabled = true
+        try {
+            wifi.isWifiEnabled = true
+        } catch (_: Exception) {
+            return false
+        }
         val start = System.currentTimeMillis()
         while (!wifi.isWifiEnabled && System.currentTimeMillis() - start < timeoutMs) {
             Thread.sleep(300)
@@ -96,7 +104,13 @@ class WifiDirectManager(private val context: Context) {
             }
 
             override fun onFailure(reason: Int) {
-                onResult(false, "createGroup failed reason=$reason")
+                val msg = when (reason) {
+                    WifiP2pManager.P2P_UNSUPPORTED -> "Device has no WiFi Direct support"
+                    WifiP2pManager.BUSY -> "WiFi Direct busy - retry in a few seconds"
+                    WifiP2pManager.ERROR -> "WiFi Direct error"
+                    else -> "createGroup failed reason=$reason"
+                }
+                onResult(false, msg)
             }
         }
 

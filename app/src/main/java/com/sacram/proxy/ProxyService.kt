@@ -71,10 +71,9 @@ class ProxyService : Service() {
 
             AppState.running.value = true
             updateStatus("Enabling WiFi...")
-            if (!WifiDirectManager(this@ProxyService).ensureWifiOn()) {
-                updateStatus("ERROR: WiFi could not be enabled")
-                stopSelf()
-                return
+            val wifiOk = WifiDirectManager(this@ProxyService).ensureWifiOn()
+            if (!wifiOk) {
+                updateStatus("Note: could not auto-enable WiFi (some Android versions block it) - trying anyway")
             }
             val p2p = WifiDirectManager(this)
 
