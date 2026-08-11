@@ -9,6 +9,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -116,7 +118,7 @@ class Socks5Server(
             if (nmethods <= 0) {
                 client.close(); return
             }
-            input.skipBytes(nmethods.toLong())
+            input.skipBytes(nmethods)
             output.writeByte(0x05); output.writeByte(0x00); output.flush()
 
             // request header
@@ -305,7 +307,7 @@ class Socks5Server(
         }
     }
 
-    private suspend fun pump(src: DataInputStream, dst: DataOutputStream) {
+    private suspend fun pump(src: InputStream, dst: OutputStream) {
         val buf = ByteArray(65536)
         try {
             while (running.get()) {

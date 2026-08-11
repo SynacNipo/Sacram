@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.FileObserver
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
@@ -18,10 +19,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 class ProxyService : Service() {
@@ -139,7 +139,7 @@ class ProxyService : Service() {
             updateNotification(actualSsid, actualPass, goIp, config.port)
 
             // client count poller
-            while (isActive && started.get()) {
+            while (coroutineContext.isActive && started.get()) {
                 delay(5000)
                 p2p.requestGroupInfo { g ->
                     val n = g?.clientList?.size ?: 0
@@ -156,13 +156,15 @@ class ProxyService : Service() {
     private fun startFileWatcher() {
         val watched = ConfigManager.externalConfigFile(this)
         if (!watched.exists()) ConfigManager.mirrorToExternal(this)
-        fileObserver = FileObserver(watched.parentFile?.absolutePath ?: return) { event ->
-            if (event and FileObserver.CLOSE_WRITE != 0 && watched.exists() && started.get()) {
-                restartJob?.cancel()
-                restartJob = scope.launch {
-                    delay(1200)
-                    ConfigManager.mirrorToExternal(this@ProxyService)
-                    restartProxy()
+        fileObserver = object : FileObserver(watched.absolutePath) {
+            override fun onEvent(event: Int, path: String?) {
+                if (event and FileObserver.CLOSE_WRITE != 0 && started.get()) {
+                    restartJob?.cancel()
+                    restartJob = scope.launch {
+                        delay(1200)
+                        ConfigManager.mirrorToExternal(this@ProxyService)
+                        restartProxy()
+                    }
                 }
             }
         }.apply { startWatching() }
@@ -282,42 +284,5 @@ class ProxyService : Service() {
 
     private fun updateStatus(msg: String) {
         AppState.status.value = msg
-    }
-}
-
-// Lightweight FileObserver avoiding androidx dependency
-class FileObserver(path: String, private val mask: Int, private val listener: (Int) -> Unit) {
-    private var thread: Thread? = null
-    private var watching = false
-
-    companion object {
-        const val CLOSE_WRITE = 0x00000008
-        val ALL_EVENTS = CLOSE_WRITE
-    }
-
-    fun startWatching() {
-        if (watching) return
-        watching = true
-        thread = Thread {
-            var last: Long = System.currentTimeMillis()
-            while (watching) {
-                val dir = File(path)
-                val files = dir.listFiles() ?: emptyArray()
-                for (f in files) {
-                    val modified = f.lastModified()
-                    if (modified - last > 2000 && modified > System.currentTimeMillis() - 5000) {
-                        listener(mask)
-                        last = System.currentTimeMillis()
-                    }
-                }
-                try { Thread.sleep(2000) } catch (_: InterruptedException) { break }
-            }
-        }.also { it.isDaemon = true; it.start() }
-    }
-
-    fun stopWatching() {
-        watching = false
-        thread?.interrupt()
-        thread = null
     }
 }
