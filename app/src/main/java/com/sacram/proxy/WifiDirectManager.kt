@@ -1,0 +1,144 @@
+package com.sacram.proxy
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.wifi.WifiManager
+import android.net.wifi.p2p.WifiP2pConfig
+import android.net.wifi.p2p.WifiP2pGroup
+import android.net.wifi.p2p.WifiP2pManager
+import android.os.Build
+import android.os.Looper
+import java.net.InetAddress
+import java.net.NetworkInterface
+
+class WifiDirectManager(private val context: Context) {
+
+    private val manager: WifiP2pManager =
+        context.applicationContext.getSystemService(Context.WIFI_P2P_SERVICE) as WifiP2pManager
+    private val channel: WifiP2pManager.Channel =
+        manager.initialize(context.applicationContext, Looper.getMainLooper(), null)
+    private var receiver: BroadcastReceiver? = null
+
+    /**
+     * Android 12 requires the P2P group network name to begin with "DIRECT-xy"
+     * where x and y are alphanumeric. Enforce that here.
+     */
+    fun normalizeSsid(raw: String): String {
+        var s = raw.trim()
+        if (s.isEmpty()) s = ConfigManager.defaultConfig.ssid
+        if (s.startsWith("DIRECT-")) {
+            val rest = s.removePrefix("DIRECT-")
+            if (rest.length >= 2 && rest.take(2).all { it.isLetterOrDigit() }) {
+                return s.take(32)
+            }
+            s = rest
+        }
+        val code = (s.uppercase() + "AP").take(2).map { if (it.isLetterOrDigit()) it else 'A' }.joinToString("")
+        val name = "DIRECT-$code$s"
+        return name.take(32)
+    }
+
+    fun registerReceiver(onChanged: (WifiP2pGroup?) -> Unit) {
+        val filter = IntentFilter().apply {
+            addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+            addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
+        }
+        receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
+                        val group = intent.getParcelableExtra<WifiP2pGroup>(
+                            WifiP2pManager.EXTRA_WIFI_P2P_GROUP
+                        )
+                        onChanged(group)
+                    }
+                }
+            }
+        }
+        context.applicationContext.registerReceiver(receiver, filter)
+    }
+
+    fun unregisterReceiver() {
+        receiver?.let { runCatching { context.applicationContext.unregisterReceiver(it) } }
+        receiver = null
+    }
+
+    fun ensureWifiOn(timeoutMs: Long = 15000): Boolean {
+        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        if (wifi.isWifiEnabled) return true
+        wifi.isWifiEnabled = true
+        val start = System.currentTimeMillis()
+        while (!wifi.isWifiEnabled && System.currentTimeMillis() - start < timeoutMs) {
+            Thread.sleep(300)
+        }
+        return wifi.isWifiEnabled
+    }
+
+    fun removeExistingGroup(onDone: () -> Unit) {
+        manager.requestGroupInfo(channel) { group ->
+            if (group != null) {
+                manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() = onDone()
+                    override fun onFailure(reason: Int) = onDone()
+                })
+            } else {
+                onDone()
+            }
+        }
+    }
+
+    fun createGroup(ssid: String, password: String, onResult: (Boolean, String) -> Unit) {
+        val listener = object : WifiP2pManager.ActionListener {
+            override fun onSuccess() {
+                onResult(true, "Group created")
+            }
+
+            override fun onFailure(reason: Int) {
+                onResult(false, "createGroup failed reason=$reason")
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val config = WifiP2pConfig.Builder()
+                    .setNetworkName(normalizeSsid(ssid))
+                    .setPassphrase(password)
+                    .build()
+                manager.createGroup(channel, config, listener)
+                return
+            } catch (e: Exception) {
+                // fall through to plain createGroup
+            }
+        }
+        manager.createGroup(channel, listener)
+    }
+
+    fun removeGroup(onDone: () -> Unit = {}) {
+        manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() = onDone()
+            override fun onFailure(reason: Int) = onDone()
+        })
+    }
+
+    fun requestGroupInfo(onInfo: (WifiP2pGroup?) -> Unit) {
+        manager.requestGroupInfo(channel, onInfo)
+    }
+
+    fun getGroupOwnerIp(): String {
+        val candidates = listOf("p2p0", "p2p-wlan0-0", "p2p-wlan0-1", "p2p-wlan0-2")
+        for (name in candidates) {
+            try {
+                val nif = NetworkInterface.getByName(name) ?: continue
+                val addr = nif.inetAddresses.asSequence()
+                    .filter { it is InetAddress && it.address.size == 4 }
+                    .map { it.hostAddress }
+                    .firstOrNull()
+                if (addr != null) return addr
+            } catch (_: Exception) {
+            }
+        }
+        return "192.168.49.1"
+    }
+}
