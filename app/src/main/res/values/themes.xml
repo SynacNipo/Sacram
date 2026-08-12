@@ -1,7 +1,0 @@
-<resources>
-    <style name="Theme.Sacram" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/primary</item>
-        <item name="colorOnPrimary">@color/on_primary</item>
-        <item name="colorSecondary">@color/primary</item>
-    </style>
-</resources>

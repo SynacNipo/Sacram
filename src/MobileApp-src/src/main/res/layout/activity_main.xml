@@ -122,11 +122,36 @@
                     android:inputType="number" />
             </com.google.android.material.textfield.TextInputLayout>
 
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilProxyType"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="Proxy Type (1=UDP/SOCKS5, 2=HTTP)">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etProxyType"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:text="0" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:layout_marginBottom="4dp"
+                android:text="Leave 0 to use the default mode. Set 1 for UDP/SOCKS5 or 2 for HTTP proxy mode."
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp" />
+
             <TextView
                 android:id="@+id/tvSaved"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
+                android:textColor="@color/text_secondary"
                 android:textSize="12sp"
                 android:text="Auto-saved to config.txt" />
 
@@ -135,9 +160,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:textSize="11sp"
-                android:textColor="#757575"
-                android:textIsSelectable="true" />
+                android:textColor="@color/text_secondary"
+                android:textIsSelectable="true"
+                android:textSize="11sp" />
 
         </LinearLayout>
 
@@ -190,13 +215,13 @@
                     android:inputType="number" />
             </com.google.android.material.textfield.TextInputLayout>
 
-            <TextView
+                <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
                 android:text="HTTP mode helps when mihomo/Clash TUN is not needed - point the client at http://192.168.49.1:8282"
                 android:textSize="12sp"
-                android:textColor="#757575"
+                android:textColor="@color/text_secondary"
                 android:textIsSelectable="true" />
 
         </LinearLayout>

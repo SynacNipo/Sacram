@@ -7,8 +7,8 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
-tools/
-!tools/mihomo/SacramConnect.bat
-!tools/mihomo/config.yaml
-reminder.md
-trash*.txt
+.env
+src/tools/
+!src/tools/mihomo/SacramConnect.bat
+!src/tools/mihomo/config.yaml
+WORKFLOW.md

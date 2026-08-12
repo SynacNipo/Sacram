@@ -51,13 +51,13 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Make wrapper executable
-        run: chmod +x gradlew
+        run: chmod +x src/gradle-stuff/gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: cd src/gradle-stuff && ./gradlew assembleDebug --no-daemon
 
       - name: Rename APK to sacram.apk
-        run: cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/sacram.apk
+        run: cp src/MobileApp-src/build/outputs/apk/debug/app-debug.apk src/MobileApp-src/build/outputs/apk/debug/sacram.apk
 
       - name: Compute next free release tag
         id: tag
@@ -82,7 +82,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ steps.tag.outputs.tag }}" \
-            app/build/outputs/apk/debug/sacram.apk \
+            src/MobileApp-src/build/outputs/apk/debug/sacram.apk \
             --title "${{ steps.tag.outputs.tag }}" \
             --notes "Automatic build from commit ${{ github.sha }}"
 
@@ -90,5 +90,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sacram-udp-bridge-apk
-          path: app/build/outputs/apk/debug/sacram.apk
+          path: src/MobileApp-src/build/outputs/apk/debug/sacram.apk
           retention-days: 14

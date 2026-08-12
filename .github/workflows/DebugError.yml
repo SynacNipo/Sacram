@@ -1,0 +1,71 @@
+name: Debug Compile Check
+
+on:
+  workflow_dispatch:
+
+# Debug workflow - run manually whenever you want a compile check.
+# 1. Builds the APK (catches compile errors)
+# 2. Uploads the APK + logs as artifacts
+# 3. Awaits your confirmation (manual approval) before finishing
+# 4. Timeout: 5 hours (300 min) - if you never approve, the job times out
+
+concurrency:
+  group: debug-compile
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle (cached)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make wrapper executable
+        run: chmod +x src/gradle-stuff/gradlew
+
+      - name: Compile check (assembleDebug)
+        id: build
+        run: cd src/gradle-stuff && ./gradlew assembleDebug --no-daemon
+
+      - name: Rename APK
+        if: always()
+        run: |
+          if [ -f src/MobileApp-src/build/outputs/apk/debug/app-debug.apk ]; then
+            cp src/MobileApp-src/build/outputs/apk/debug/app-debug.apk src/MobileApp-src/build/outputs/apk/debug/sacram-debug.apk
+          fi
+
+      - name: Upload APK (if built)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sacram-debug-apk
+          path: src/MobileApp-src/build/outputs/apk/debug/sacram-debug.apk
+          if-no-files-found: warn
+          retention-days: 7
+
+  await-approval:
+    needs: compile
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    timeout-minutes: 300
+    steps:
+      - uses: trstringer/manual-approval@v1
+        timeout-minutes: 300
+        with:
+          secret: ${{ github.TOKEN }}
+          approvers: SynacNipo
+          minimum-approvals: 1
+          issue-title: "Sacram debug compile - confirm result"
+          issue-body: "The debug compile finished. Check the run logs / artifacts, then comment to approve or deny. If no response within 5 hours this job times out."
+          fail-on-denial: true

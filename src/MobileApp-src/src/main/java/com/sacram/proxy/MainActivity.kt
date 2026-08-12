@@ -47,6 +47,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etSsid: EditText
     private lateinit var etPass: EditText
     private lateinit var etPort: EditText
+    private lateinit var etProxyType: EditText
     private lateinit var tvHttpStatus: TextView
     private lateinit var btnHttpToggle: Button
     private lateinit var etHttpPort: EditText
@@ -73,13 +74,14 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-tvStatus = findViewById(R.id.tvStatus)
+        tvStatus = findViewById(R.id.tvStatus)
         tvInfo = findViewById(R.id.tvInfo)
         tvSaved = findViewById(R.id.tvSaved)
         btnToggle = findViewById(R.id.btnToggle)
         etSsid = findViewById(R.id.etSsid)
         etPass = findViewById(R.id.etPass)
         etPort = findViewById(R.id.etPort)
+        etProxyType = findViewById(R.id.etProxyType)
         tvHttpStatus = findViewById(R.id.tvHttpStatus)
         btnHttpToggle = findViewById(R.id.btnHttpToggle)
         etHttpPort = findViewById(R.id.etHttpPort)
@@ -88,6 +90,7 @@ tvStatus = findViewById(R.id.tvStatus)
         etSsid.setText(config.ssid)
         etPass.setText(config.password)
         etPort.setText(config.port.toString())
+        etProxyType.setText(config.proxyType.toString())
         etHttpPort.setText(config.httpPort.toString())
         findViewById<TextView>(R.id.tvConfigPath).text =
             "config.txt: ${ConfigManager.externalConfigFile(this).absolutePath}"
@@ -191,6 +194,7 @@ tvStatus = findViewById(R.id.tvStatus)
         etSsid.addTextChangedListener(watcher)
         etPass.addTextChangedListener(watcher)
         etPort.addTextChangedListener(watcher)
+        etProxyType.addTextChangedListener(watcher)
         etHttpPort.addTextChangedListener(watcher)
     }
 
@@ -199,6 +203,7 @@ tvStatus = findViewById(R.id.tvStatus)
         val ssid = etSsid.text.toString().trim()
         val port = etPort.text.toString().toIntOrNull()
         val httpPort = etHttpPort.text.toString().toIntOrNull()
+        val proxyType = etProxyType.text.toString().toIntOrNull() ?: 0
         if (pass.length !in 8..63) {
             tvSaved.setTextColor(0xFFC62828.toInt())
             tvSaved.text = "Password must be 8-63 characters - not saved yet"
@@ -214,6 +219,11 @@ tvStatus = findViewById(R.id.tvStatus)
             tvSaved.text = "Invalid HTTP port - not saved yet"
             return
         }
+        if (proxyType !in 0..2) {
+            tvSaved.setTextColor(0xFFC62828.toInt())
+            tvSaved.text = "Proxy type must be 0, 1, or 2 - not saved yet"
+            return
+        }
         val prev = ConfigManager.load(this)
         ConfigManager.save(
             this,
@@ -221,6 +231,7 @@ tvStatus = findViewById(R.id.tvStatus)
                 ssid = ssid.ifEmpty { ConfigManager.defaultConfig.ssid },
                 password = pass,
                 port = port,
+                proxyType = proxyType,
                 httpPort = httpPort
             )
         )
@@ -259,7 +270,9 @@ tvStatus = findViewById(R.id.tvStatus)
             return
         }
         val prev = ConfigManager.load(this)
-        ConfigManager.save(this, prev.copy(proxyMode = mode))
+        val type = if (mode == "http") 2 else 1
+        etProxyType.setText(type.toString())
+        ConfigManager.save(this, prev.copy(proxyMode = mode, proxyType = type))
         autosave()
         checkPermissionsAndStart()
     }

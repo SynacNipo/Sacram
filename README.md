@@ -25,11 +25,14 @@ ssid=SacramAP
 password=sacram1234
 port=1080
 proxy_mode=socks5|http
+proxy_type=0|1|2
 http_port=8282
 telemetry_prompted=true
 telemetry_enabled=true
 collector_url=https://sacram-telemetry.synacnipo.workers.dev
 ```
+
+`proxy_type` (optional): `0` = use `proxy_mode` as-is (default), `1` = UDP/SOCKS5, `2` = HTTP.
 
 Constraints enforced by Android:
 - SSID gets the required `DIRECT-xy` prefix automatically (e.g. `DIRECT-SASacramAP`)

@@ -9,11 +9,20 @@ data class AppConfig(
     val password: String,
     val port: Int,
     val proxyMode: String = "socks5",
+    val proxyType: Int = 0, // 0=unset (use proxyMode), 1=UDP/SOCKS5, 2=HTTP
     val httpPort: Int = 8282,
     val telemetryPrompted: Boolean = false,
     val telemetryEnabled: Boolean = false,
     val collectorUrl: String = "https://sacram-telemetry.synacnipo.workers.dev"
-)
+) {
+    fun effectiveMode(): String {
+        return when (proxyType) {
+            1 -> "socks5"
+            2 -> "http"
+            else -> proxyMode
+        }
+    }
+}
 
 object ConfigManager {
 
@@ -77,6 +86,7 @@ object ConfigManager {
                 port = p.getProperty("port", defaultConfig.port.toString()).toIntOrNull() ?: defaultConfig.port,
                 proxyMode = p.getProperty("proxy_mode", defaultConfig.proxyMode)
                     .ifBlank { defaultConfig.proxyMode },
+                proxyType = p.getProperty("proxy_type", "0").toIntOrNull() ?: 0,
                 httpPort = p.getProperty("http_port", defaultConfig.httpPort.toString()).toIntOrNull()
                     ?: defaultConfig.httpPort,
                 telemetryPrompted = p.getProperty("telemetry_prompted", "false").toBoolean(),
@@ -98,6 +108,7 @@ object ConfigManager {
             "password=${config.password}",
             "port=${config.port}",
             "proxy_mode=${config.proxyMode}",
+            "proxy_type=${config.proxyType}",
             "http_port=${config.httpPort}",
             "telemetry_prompted=${config.telemetryPrompted}",
             "telemetry_enabled=${config.telemetryEnabled}",

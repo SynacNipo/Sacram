@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Sacram"
 include(":app")
+project(":app").projectDir = file("../MobileApp-src")

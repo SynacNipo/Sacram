@@ -180,7 +180,7 @@ class ProxyService : Service() {
             val actualPass = groupPass.ifEmpty { config.password }
             Log.i(TAG, "group formed ssid=$actualSsid goIp=$goIp")
 
-            val httpMode = config.proxyMode == "http"
+            val httpMode = config.effectiveMode() == "http"
             AppState.httpMode.value = httpMode
 
             if (httpMode) {
