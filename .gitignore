@@ -8,4 +8,7 @@ captures/
 .externalNativeBuild/
 .cxx/
 tools/
+!tools/mihomo/SacramConnect.bat
+!tools/mihomo/config.yaml
 reminder.md
+trash*.txt

@@ -1,0 +1,30 @@
+# Mihomo (Clash core) config - Sacram phone proxy
+mixed-port: 7890
+allow-lan: true
+bind-address: "*"
+log-level: debug
+
+proxies:
+  - name: phone
+    type: socks5
+    server: 192.168.49.1
+    port: 1080
+    udp: true
+
+proxy-groups:
+  - name: auto
+    type: select
+    proxies:
+      - phone
+
+rules:
+  - MATCH,auto
+
+# Systemwide capture: TCP + UDP + ICMP
+tun:
+  enable: true
+  stack: mixed
+  auto-route: true
+  auto-detect-interface: true
+  dns-hijack:
+    - any:53
