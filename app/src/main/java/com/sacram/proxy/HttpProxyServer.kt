@@ -1,10 +1,16 @@
 package com.sacram.proxy
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
@@ -25,6 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class HttpProxyServer(
     private val port: Int,
+    private val context: Context,
     private val onLog: (String) -> Unit = {}
 ) {
 
@@ -32,9 +39,36 @@ class HttpProxyServer(
     private val running = AtomicBoolean(true)
     private var serverSocket: ServerSocket? = null
     private var tcpJob: Job? = null
+    private var cellularNetwork: Network? = null
+    private var netCallback: ConnectivityManager.NetworkCallback? = null
+
+    private fun bindToCellular() {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+            .build()
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                cellularNetwork = network
+                onLog("Bound to cellular network: $network")
+            }
+            override fun onLost(network: Network) {
+                if (cellularNetwork == network) cellularNetwork = null
+            }
+        }
+        netCallback = cb
+        cm.requestNetwork(request, cb)
+        scope.launch {
+            delay(3000)
+            if (cellularNetwork == null) {
+                onLog("WARNING: no cellular network available - outbound sockets use the default route")
+            }
+        }
+    }
 
     fun start() {
         running.set(true)
+        bindToCellular()
         tcpJob = scope.launch { runServer() }
         onLog("HTTP proxy listening on port $port")
     }
@@ -42,6 +76,12 @@ class HttpProxyServer(
     fun stop() {
         running.set(false)
         runCatching { serverSocket?.close() }
+        netCallback?.let {
+            runCatching {
+                (context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager)
+                    .unregisterNetworkCallback(it)
+            }
+        }
         tcpJob?.cancel()
         scope.cancel()
     }
@@ -113,6 +153,7 @@ class HttpProxyServer(
         try {
             val resolved = withContext(Dispatchers.IO) { InetAddress.getByName(host) }
             val up = Socket()
+            cellularNetwork?.bindSocket(up)
             up.connect(InetSocketAddress(resolved, port), 15000)
             up.tcpNoDelay = true
             upstream = up
@@ -173,6 +214,7 @@ class HttpProxyServer(
             val port = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
             val resolved = withContext(Dispatchers.IO) { InetAddress.getByName(host) }
             val up = Socket()
+            cellularNetwork?.bindSocket(up)
             up.connect(InetSocketAddress(resolved, port), 15000)
             up.tcpNoDelay = true
             upstream = up

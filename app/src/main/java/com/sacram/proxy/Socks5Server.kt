@@ -1,10 +1,16 @@
 package com.sacram.proxy
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.DataInputStream
@@ -27,6 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class Socks5Server(
     private val port: Int,
     private val advertiseIp: String,
+    private val context: Context,
     private val onLog: (String) -> Unit = {}
 ) {
 
@@ -36,6 +43,32 @@ class Socks5Server(
     private var udpSocket: DatagramSocket? = null
     private var tcpJob: Job? = null
     private var udpJob: Job? = null
+    private var cellularNetwork: Network? = null
+    private var netCallback: ConnectivityManager.NetworkCallback? = null
+
+    private fun bindToCellular() {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+            .build()
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                cellularNetwork = network
+                onLog("Bound to cellular network: $network")
+            }
+            override fun onLost(network: Network) {
+                if (cellularNetwork == network) cellularNetwork = null
+            }
+        }
+        netCallback = cb
+        cm.requestNetwork(request, cb)
+        scope.launch {
+            delay(3000)
+            if (cellularNetwork == null) {
+                onLog("WARNING: no cellular network available - outbound sockets use the default route")
+            }
+        }
+    }
 
     // key "clientIp:port" -> forwarding socket for UDP sessions
     private val udpSessions = ConcurrentHashMap<String, UdpSession>()
@@ -46,6 +79,7 @@ class Socks5Server(
 
     fun start() {
         running.set(true)
+        bindToCellular()
         tcpJob = scope.launch { runTcpServer() }
         udpJob = scope.launch { runUdpServer() }
         onLog("SOCKS5 listening tcp/udp on port $port")
@@ -57,6 +91,12 @@ class Socks5Server(
         runCatching { udpSocket?.close() }
         udpSessions.values.forEach { runCatching { it.socket.close() } }
         udpSessions.clear()
+        netCallback?.let {
+            runCatching {
+                (context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager)
+                    .unregisterNetworkCallback(it)
+            }
+        }
         tcpJob?.cancel()
         udpJob?.cancel()
         scope.cancel()
@@ -153,6 +193,7 @@ class Socks5Server(
         try {
             val resolved = withContext(Dispatchers.IO) { InetAddress.getByName(target) }
             val up = Socket()
+            cellularNetwork?.bindSocket(up)
             up.connect(InetSocketAddress(resolved, targetPort), 15000)
             up.tcpNoDelay = true
             upstream = up
@@ -220,6 +261,7 @@ class Socks5Server(
             val session = udpSessions[clientKey]
             if (session == null) {
                 val fwd = DatagramSocket()
+                cellularNetwork?.bindSocket(fwd)
                 fwd.soTimeout = 1000
                 val newSession = UdpSession(fwd)
                 udpSessions[clientKey] = newSession

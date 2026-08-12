@@ -187,6 +187,7 @@ class ProxyService : Service() {
                 updateStatus("Starting HTTP proxy on $goIp:${config.httpPort}...")
                 val server = HttpProxyServer(
                     port = config.httpPort,
+                    context = this,
                     onLog = { updateStatus("  $it") }
                 )
                 http = server
@@ -201,6 +202,7 @@ class ProxyService : Service() {
                 socks = Socks5Server(
                     port = config.port,
                     advertiseIp = goIp,
+                    context = this,
                     onLog = { updateStatus("  $it") }
                 ).also { it.start() }
                 Log.i(TAG, "SOCKS5 started on $goIp:${config.port}")
