@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -221,8 +222,15 @@ class HttpProxyServer(
             output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray())
             output.flush()
             onLog("CONNECT $host:$port")
-            pump(input, up.getOutputStream())
-            pump(up.getInputStream(), output)
+            // CONNECT tunnels are full-duplex: pump both directions concurrently
+            // (sequential pumping stalls HTTPS because the client keeps the
+            // request stream open while expecting the response to flow back).
+            coroutineScope {
+                val toServer = launch { pump(input, up.getOutputStream()) }
+                val toClient = launch { pump(up.getInputStream(), output) }
+                toServer.join()
+                toClient.join()
+            }
         } catch (e: Exception) {
             onLog("CONNECT fail $target: ${e.message}")
             writeSimpleResponse(output, 502, "Bad Gateway - ${e.message}")

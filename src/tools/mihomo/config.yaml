@@ -1,8 +1,10 @@
-# Mihomo (Clash core) config - Sacram phone proxy
+# Mihomo (Clash core) config - Sacram phone proxy (auto-generated)
 mixed-port: 7890
 allow-lan: true
-bind-address: "*"
+bind-address: '*'
 log-level: debug
+geo-auto-update: false
+interface-name: 'Wi-Fi'
 
 proxies:
   - name: phone
@@ -10,6 +12,7 @@ proxies:
     server: 192.168.49.1
     port: 1080
     udp: true
+    remote-dns: true
 
 proxy-groups:
   - name: auto
@@ -20,11 +23,42 @@ proxy-groups:
 rules:
   - MATCH,auto
 
+# DNS: fake-ip mode (recommended for TUN). All DNS is hijacked
+# into the TUN; we answer with a fake IP and keep the real name.
+# The DoH upstreams below are reached THROUGH the phone proxy
+# (#auto) using the hostname. remote-dns: true on the proxy makes
+# mihomo send the hostname (not a raw IP) so the phone resolves it.
+# DoH rides on :443 HTTPS, so it is immune to the any:53 hijack
+# loop that would trap a plain udp/tcp :53 upstream queried by
+# mihomo itself. mihomo needs a working resolver because its
+# SOCKS5 UDP path resolves the domain to a real IP locally and
+# forwards that IP to the phone (which routes IPs fine).
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  default-nameserver:
+    - 192.168.49.1
+  nameserver:
+    - https://dns.google/dns-query#auto
+    - https://dns.quad9.net/dns-query#auto
+  fallback-filter:
+    geoip: false
+  nameserver-policy:
+    '+.lan': system
+    '+.local': system
+
 # Systemwide capture: TCP + UDP + ICMP
 tun:
   enable: true
   stack: mixed
   auto-route: true
-  auto-detect-interface: true
+  auto-detect-interface: false
+  strict-route: true
+  route-exclude-address:
+    - 192.168.49.0/24
+    - 192.168.43.0/24
   dns-hijack:
     - any:53
+    - tcp://any:53

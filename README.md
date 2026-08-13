@@ -1,5 +1,33 @@
 # Sacram UDP Bridge
 
+> [!WARNING]
+> **UNSTABLE — ALPHA — NOT PRODUCTION READY**
+>
+> This project is in **early alpha**. Expect breaking changes, bugs, and
+> partial implementations. **No internet connectivity is confirmed working
+> yet** — the WiFi Direct + proxy + TUN path is still being debugged and may
+> not actually carry traffic end-to-end. Do not rely on this for anything real.
+
+## Status
+
+| Area            | State                                                                 |
+|-----------------|-----------------------------------------------------------------------|
+| Android app     | Alpha — proxy + WiFi Direct logic exists but unvalidated end-to-end    |
+| Phone → internet| **Not confirmed working** — UDP/TCP forwarding not verified           |
+| Windows client  | Alpha — `SacramConnect.bat` (mihomo TUN) starts but DNS/routing still being fixed |
+| Connectivity    | **No verified internet connection yet** — see logs, nothing loads reliably |
+| HTTP (TCP) proxy| **Working** — plain HTTP + CONNECT tunnels fixed (full-duplex)               |
+| UDP dev         | **Paused** — SOCKS5 UDP ASSOCIATE exists but verification/support on hold    |
+
+Known open issues being worked on:
+- mihomo TUN starts but upstream DNS resolution was failing (public DoH
+  unreachable through the phone proxy); now pointed at the phone gateway.
+- UDP/QUIC (`can't resolve ip`) failures need verification after the DNS fix.
+- The auto-detected "phone" gateway may be wrong when the phone isn't the
+  default route.
+
+---
+
 Android app (Kotlin) that turns any spare Android phone into a **WiFi Direct hotspot + proxy** so a PC can reach the internet through the phone's data connection — UDP included.
 
 1. Starts a **WiFi Direct** access point (Group Owner) with a custom, changeable SSID + password
