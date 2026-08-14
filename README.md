@@ -1,13 +1,13 @@
 # Sacram UDP Bridge
 
 > [!WARNING]
-> **UNSTABLE — ALPHA — NOT PRODUCTION READY**
+> **ALPHA — HTTP/HTTPS PROXY ONLY IS STABLE**
 >
-> This project is in **early alpha**. Expect breaking changes, bugs, and
-> partial implementations. **HTTP (TCP) proxy connectivity is now confirmed
-> working** over WiFi Direct — the PC reaches the internet through the phone's
-> HTTP proxy. UDP + TUN path is still being debugged. Do not rely on this for
-> anything real yet.
+> This project is in **early alpha**. Expect breaking changes and bugs in the
+> UDP + TUN path. The **HTTP/HTTPS (TCP) proxy over WiFi Direct is confirmed
+> stable** — the PC reliably reaches the internet through the phone's HTTP
+> proxy. UDP + TUN support is still being debugged. Do not rely on anything
+> beyond the HTTP/HTTPS proxy for anything real yet.
 
 ## Status
 
