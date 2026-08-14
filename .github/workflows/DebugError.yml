@@ -2,12 +2,14 @@ name: Debug Compile Check
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
-# Debug workflow - run manually whenever you want a compile check.
-# 1. Builds the APK (catches compile errors)
-# 2. Uploads the APK + logs as artifacts
-# 3. Awaits your confirmation (manual approval) before finishing
-# 4. Timeout: 5 hours (300 min) - if you never approve, the job times out
+# Debug workflow - run manually OR automatically on a [DEBUG] commit.
+# Push a commit whose message contains "[DEBUG]" to main to trigger a
+# compile-only check (catches compile errors, uploads the APK as an artifact).
+# Manual dispatch additionally awaits your confirmation (approval gate).
+# Timeout: 5 hours (300 min) - if you never approve, the job times out.
 
 concurrency:
   group: debug-compile
@@ -17,6 +19,7 @@ jobs:
   compile:
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[DEBUG]')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,6 +58,7 @@ jobs:
 
   await-approval:
     needs: compile
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       issues: write
