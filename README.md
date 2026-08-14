@@ -11,13 +11,15 @@
 
 ## Status
 
-| Area            | State                                                                 |
-|-----------------|-----------------------------------------------------------------------|
-| Android app     | Alpha — proxy + WiFi Direct logic exists but unvalidated end-to-end    |
-| Connectivity    | **Working (HTTP/TCP)** — PC reaches the internet through the phone HTTP proxy over WiFi Direct |
-| Windows client  | Alpha — `SacramConnect.bat` (mihomo TUN) starts but DNS/routing still being fixed |
-| HTTP (TCP) proxy| **Working** — plain HTTP + CONNECT tunnels fixed (full-duplex)               |
-| UDP dev         | **Paused** — SOCKS5 UDP ASSOCIATE exists but verification/support on hold    |
+| Component        | Status        | Notes                                                              |
+|------------------|---------------|--------------------------------------------------------------------|
+| Android app      | Alpha         | Proxy + WiFi Direct logic present, not validated end-to-end        |
+| Connectivity     | Working (TCP) | PC reaches the internet via the phone proxy over WiFi Direct       |
+| Windows client   | Alpha         | `SacramConnect.bat` (mihomo TUN) starts; DNS/routing still being fixed |
+| HTTP (TCP) proxy | Working       | Plain HTTP + CONNECT tunnels, full-duplex                          |
+| SOCKS5 (TCP)     | Working       | Concurrent bidirectional pump fixed                                |
+| SOCKS5 UDP       | In progress   | UDP ASSOCIATE exists; actively being worked on                     |
+| Hybrid mode      | New           | Runs SOCKS5 + HTTP together (`proxy_type=3`)                       |
 
 Known open issues being worked on:
 - mihomo TUN starts but upstream DNS resolution was failing (public DoH
