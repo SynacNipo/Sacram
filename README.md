@@ -17,9 +17,8 @@
 | Connectivity     | Working (TCP) | PC reaches the internet via the phone proxy over WiFi Direct       |
 | Windows client   | Alpha         | `SacramConnect.bat` (mihomo TUN) starts; DNS/routing still being fixed |
 | HTTP (TCP) proxy | Working       | Plain HTTP + CONNECT tunnels, full-duplex                          |
-| SOCKS5 (TCP)     | Working       | Concurrent bidirectional pump fixed                                |
+| SOCKS5 (TCP)     | Unverified    | Bidirectional pump reworked; not yet validated end-to-end         |
 | SOCKS5 UDP       | In progress   | UDP ASSOCIATE exists; actively being worked on                     |
-| Hybrid mode      | New           | Runs SOCKS5 + HTTP together (`proxy_type=3`)                       |
 
 Known open issues being worked on:
 - mihomo TUN starts but upstream DNS resolution was failing (public DoH
