@@ -4,18 +4,18 @@
 > **UNSTABLE — ALPHA — NOT PRODUCTION READY**
 >
 > This project is in **early alpha**. Expect breaking changes, bugs, and
-> partial implementations. **No internet connectivity is confirmed working
-> yet** — the WiFi Direct + proxy + TUN path is still being debugged and may
-> not actually carry traffic end-to-end. Do not rely on this for anything real.
+> partial implementations. **HTTP (TCP) proxy connectivity is now confirmed
+> working** over WiFi Direct — the PC reaches the internet through the phone's
+> HTTP proxy. UDP + TUN path is still being debugged. Do not rely on this for
+> anything real yet.
 
 ## Status
 
 | Area            | State                                                                 |
 |-----------------|-----------------------------------------------------------------------|
 | Android app     | Alpha — proxy + WiFi Direct logic exists but unvalidated end-to-end    |
-| Phone → internet| **Not confirmed working** — UDP/TCP forwarding not verified           |
+| Connectivity    | **Working (HTTP/TCP)** — PC reaches the internet through the phone HTTP proxy over WiFi Direct |
 | Windows client  | Alpha — `SacramConnect.bat` (mihomo TUN) starts but DNS/routing still being fixed |
-| Connectivity    | **No verified internet connection yet** — see logs, nothing loads reliably |
 | HTTP (TCP) proxy| **Working** — plain HTTP + CONNECT tunnels fixed (full-duplex)               |
 | UDP dev         | **Paused** — SOCKS5 UDP ASSOCIATE exists but verification/support on hold    |
 
