@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Sacram UDP Bridge</string>
+    <string name="app_name">Sacram</string>
     <string name="help">Full setup guide, PC client config and troubleshooting are on the
 GitHub Wiki: github.com/SynacNipo/Sacram/wiki
 

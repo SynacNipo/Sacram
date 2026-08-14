@@ -102,7 +102,7 @@ object ConfigManager {
     fun save(context: Context, config: AppConfig) {
         val file = internalConfigFile(context)
         val lines = listOf(
-            "# Sacram UDP Bridge config",
+            "# Sacram config",
             "# Edit and restart the proxy to apply.",
             "ssid=${config.ssid}",
             "password=${config.password}",

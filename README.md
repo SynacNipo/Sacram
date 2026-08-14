@@ -1,4 +1,4 @@
-# Sacram UDP Bridge
+# Sacram
 
 > [!WARNING]
 > **ALPHA — HTTP/HTTPS PROXY ONLY IS STABLE**
