@@ -127,14 +127,16 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:hint="Proxy Type (1=UDP/SOCKS5, 2=HTTP)">
+                android:hint="Proxy Type"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
 
-                <com.google.android.material.textfield.TextInputEditText
+                <AutoCompleteTextView
                     android:id="@+id/etProxyType"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="number"
-                    android:text="0" />
+                    android:inputType="none"
+                    android:focusable="false"
+                    android:clickable="true" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <TextView
@@ -142,7 +144,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:layout_marginBottom="4dp"
-                android:text="Leave 0 to use the default mode. Set 1 for UDP/SOCKS5 or 2 for HTTP proxy mode."
+                android:text="Auto = use the default mode. UDP/SOCKS5 or HTTP proxy mode."
                 android:textColor="@color/text_secondary"
                 android:textSize="11sp" />
 

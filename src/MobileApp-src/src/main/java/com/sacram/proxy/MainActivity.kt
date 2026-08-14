@@ -15,6 +15,8 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
 import android.view.View
+import android.widget.ArrayAdapter
+import android.widget.AutoCompleteTextView
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -38,6 +40,7 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "SacramMain"
+        val PROXY_TYPE_LABELS = listOf("Auto (default mode)", "UDP / SOCKS5", "HTTP")
     }
 
     private lateinit var tvStatus: TextView
@@ -47,7 +50,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etSsid: EditText
     private lateinit var etPass: EditText
     private lateinit var etPort: EditText
-    private lateinit var etProxyType: EditText
+    private lateinit var etProxyType: AutoCompleteTextView
     private lateinit var tvHttpStatus: TextView
     private lateinit var btnHttpToggle: Button
     private lateinit var etHttpPort: EditText
@@ -90,8 +93,8 @@ class MainActivity : AppCompatActivity() {
         etSsid.setText(config.ssid)
         etPass.setText(config.password)
         etPort.setText(config.port.toString())
-        etProxyType.setText(config.proxyType.toString())
         etHttpPort.setText(config.httpPort.toString())
+        setupProxyTypeDropdown(config.proxyType)
         findViewById<TextView>(R.id.tvConfigPath).text =
             "config.txt: ${ConfigManager.externalConfigFile(this).absolutePath}"
 
@@ -194,8 +197,21 @@ class MainActivity : AppCompatActivity() {
         etSsid.addTextChangedListener(watcher)
         etPass.addTextChangedListener(watcher)
         etPort.addTextChangedListener(watcher)
-        etProxyType.addTextChangedListener(watcher)
         etHttpPort.addTextChangedListener(watcher)
+    }
+
+    private fun setupProxyTypeDropdown(selected: Int) {
+        val adapter = ArrayAdapter(
+            this,
+            android.R.layout.simple_dropdown_item_1line,
+            PROXY_TYPE_LABELS
+        )
+        etProxyType.setAdapter(adapter)
+        etProxyType.setText(PROXY_TYPE_LABELS.getOrElse(selected) { PROXY_TYPE_LABELS[0] }, false)
+        etProxyType.setOnItemClickListener { _, _, position, _ ->
+            etProxyType.setText(PROXY_TYPE_LABELS[position], false)
+            autosave()
+        }
     }
 
     private fun autosave() {
@@ -203,7 +219,9 @@ class MainActivity : AppCompatActivity() {
         val ssid = etSsid.text.toString().trim()
         val port = etPort.text.toString().toIntOrNull()
         val httpPort = etHttpPort.text.toString().toIntOrNull()
-        val proxyType = etProxyType.text.toString().toIntOrNull() ?: 0
+        val proxyType = PROXY_TYPE_LABELS.indexOf(etProxyType.text.toString()).let {
+            if (it < 0) 0 else it
+        }
         if (pass.length !in 8..63) {
             tvSaved.setTextColor(0xFFC62828.toInt())
             tvSaved.text = "Password must be 8-63 characters - not saved yet"
@@ -271,7 +289,7 @@ class MainActivity : AppCompatActivity() {
         }
         val prev = ConfigManager.load(this)
         val type = if (mode == "http") 2 else 1
-        etProxyType.setText(type.toString())
+        etProxyType.setText(PROXY_TYPE_LABELS[type], false)
         ConfigManager.save(this, prev.copy(proxyMode = mode, proxyType = type))
         autosave()
         checkPermissionsAndStart()
