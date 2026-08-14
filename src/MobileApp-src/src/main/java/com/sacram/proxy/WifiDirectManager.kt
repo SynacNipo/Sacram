@@ -40,9 +40,11 @@ class WifiDirectManager(private val context: Context) {
         val body = s.map { c ->
             if (c.isLetterOrDigit() || c == '-') c.uppercaseChar() else 'A'
         }.joinToString("").ifEmpty { "SacramAP" }
-        val code = body.take(2)
-        val name = "DIRECT-$code$body"
-        return name.take(32)
+        // Android requires "DIRECT-xy" where x,y are the first two alphanumeric
+        // chars. Use the code exactly once, then the remainder of the body, so the
+        // prefix never overlaps/duplicates the name. SSID is capped at 32 octets.
+        val code = body.take(2).padEnd(2, 'A')
+        return ("DIRECT-$code" + body.drop(2)).take(32)
     }
 
     fun registerReceiver(onChanged: (WifiP2pGroup?) -> Unit) {

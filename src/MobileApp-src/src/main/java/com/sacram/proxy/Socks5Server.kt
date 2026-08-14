@@ -43,8 +43,11 @@ class Socks5Server(
     private var udpSocket: DatagramSocket? = null
     private var tcpJob: Job? = null
     private var udpJob: Job? = null
+    private var udpSweepJob: Job? = null
     private var cellularNetwork: Network? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
+
+    private val maxUdpSessions = 1024
 
     private fun bindToCellular() {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -82,6 +85,7 @@ class Socks5Server(
         bindToCellular()
         tcpJob = scope.launch { runTcpServer() }
         udpJob = scope.launch { runUdpServer() }
+        udpSweepJob = scope.launch { runUdpSweep() }
         onLog("SOCKS5 listening tcp/udp on port $port")
     }
 
@@ -99,6 +103,7 @@ class Socks5Server(
         }
         tcpJob?.cancel()
         udpJob?.cancel()
+        udpSweepJob?.cancel()
         scope.cancel()
     }
 
@@ -158,7 +163,13 @@ class Socks5Server(
             if (nmethods <= 0) {
                 client.close(); return
             }
-            input.skipBytes(nmethods)
+            val methods = ByteArray(nmethods)
+            input.readFully(methods) // throws EOF if the client lied about nmethods
+            if (0x00.toByte() !in methods) {
+                // we only support no-auth; report and bail
+                output.writeByte(0x05); output.writeByte(0xff); output.flush()
+                client.close(); return
+            }
             output.writeByte(0x05); output.writeByte(0x00); output.flush()
 
             // request header
@@ -265,6 +276,7 @@ class Socks5Server(
             val clientKey = "${pkt.address.hostAddress}:${pkt.port}"
             val session = udpSessions[clientKey]
             if (session == null) {
+                enforceUdpSessionCap()
                 val fwd = DatagramSocket()
                 cellularNetwork?.bindSocket(fwd)
                 fwd.soTimeout = 1000
@@ -277,6 +289,25 @@ class Socks5Server(
             val dstAddr = InetAddress.getByName(dstHost)
             sessionNow.socket.send(DatagramPacket(payload, payload.size, dstAddr, dstPort))
         } catch (_: Exception) {
+        }
+    }
+
+    private fun enforceUdpSessionCap() {
+        if (udpSessions.size < maxUdpSessions) return
+        val oldest = udpSessions.entries.minByOrNull { it.value.lastActivity } ?: return
+        if (udpSessions.remove(oldest.key, oldest.value)) runCatching { oldest.value.socket.close() }
+    }
+
+    private suspend fun runUdpSweep() {
+        while (running.get()) {
+            delay(60_000)
+            val now = System.currentTimeMillis()
+            for (key in udpSessions.keys()) {
+                val s = udpSessions[key] ?: continue
+                if (now - s.lastActivity > 300_000) {
+                    if (udpSessions.remove(key, s)) runCatching { s.socket.close() }
+                }
+            }
         }
     }
 
