@@ -13,10 +13,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
@@ -24,6 +24,7 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -42,6 +43,13 @@ class HttpProxyServer(
     private var tcpJob: Job? = null
     private var cellularNetwork: Network? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
+
+    private val dnsCache = ConcurrentHashMap<String, Pair<InetAddress, Long>>()
+    private val connPool = ConcurrentHashMap<String, MutableList<Socket>>()
+    private val dnsTtlMs = 60_000L
+    private val poolMax = 4
+    private val connectTimeoutMs = 10_000
+    private val readTimeoutMs = 20_000
 
     private fun bindToCellular() {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -152,13 +160,8 @@ class HttpProxyServer(
     ) {
         var upstream: Socket? = null
         try {
-            val resolved = withContext(Dispatchers.IO) { InetAddress.getByName(host) }
-            val up = Socket()
-            cellularNetwork?.bindSocket(up)
-            up.connect(InetSocketAddress(resolved, port), 15000)
-            up.tcpNoDelay = true
-            upstream = up
-            val upOut = BufferedOutputStream(up.getOutputStream())
+            upstream = acquireUpstream(host, port)
+            val upOut = BufferedOutputStream(upstream.getOutputStream())
 
             val sb = StringBuilder()
             sb.append("$method $path HTTP/1.1\r\n")
@@ -170,7 +173,7 @@ class HttpProxyServer(
                 sb.append(h).append("\r\n")
             }
             sb.append("Host: $host:$port\r\n")
-            sb.append("Connection: close\r\n\r\n")
+            sb.append("Connection: keep-alive\r\n\r\n")
             upOut.write(sb.toString().toByteArray())
             upOut.flush()
 
@@ -193,12 +196,137 @@ class HttpProxyServer(
                 }
             }
             onLog("HTTP $method $host:$port$path")
-            pump(up.getInputStream(), output)
+
+            val upIn = upstream.getInputStream()
+            val statusLine = readLine(upIn) ?: throw IOException("no response from upstream")
+            val respHeaders = readHeaders(upIn) ?: throw IOException("no response headers")
+
+            val chunked = respHeaders.any {
+                it.startsWith("Transfer-Encoding:", true) && it.contains("chunked", true)
+            }
+            val respLength = respHeaders.firstOrNull { it.startsWith("Content-Length:", true) }
+                ?.substringAfter(':')?.trim()?.toLongOrNull()
+            val upstreamClose = respHeaders.any {
+                it.startsWith("Connection:", true) && it.contains("close", true)
+            }
+            val upstreamKeepAlive = !upstreamClose && (chunked || respLength != null)
+
+            writeResponseHeaders(output, statusLine, respHeaders, upstreamKeepAlive)
+
+            when {
+                chunked -> forwardChunkedResponse(upIn, output)
+                respLength != null -> pumpFixed(upIn, output, respLength)
+                else -> pump(upIn, output)
+            }
+            output.flush()
+
+            if (upstreamKeepAlive) {
+                releaseUpstream(host, port, upstream)
+                upstream = null
+            }
         } catch (e: Exception) {
             onLog("HTTP fail $host:$port: ${e.message}")
             writeSimpleResponse(output, 502, "Bad Gateway - ${e.message}")
         } finally {
             runCatching { upstream?.close() }
+        }
+    }
+
+    private fun resolve(host: String): InetAddress {
+        val now = System.currentTimeMillis()
+        val cached = dnsCache[host]
+        if (cached != null && cached.second > now) return cached.first
+        val addr = InetAddress.getByName(host)
+        dnsCache[host] = addr to (now + dnsTtlMs)
+        return addr
+    }
+
+    private fun acquireUpstream(host: String, port: Int): Socket {
+        val key = "$host:$port"
+        val pool = connPool[key]
+        var reused: Socket? = null
+        if (pool != null) {
+            synchronized(pool) { reused = pool.removeLastOrNull() }
+        }
+        if (reused != null && !reused.isClosed) {
+            return reused
+        }
+        val addr = resolve(host)
+        val up = Socket()
+        cellularNetwork?.bindSocket(up)
+        up.soTimeout = readTimeoutMs
+        up.tcpNoDelay = true
+        up.connect(InetSocketAddress(addr, port), connectTimeoutMs)
+        return up
+    }
+
+    private fun releaseUpstream(host: String, port: Int, sock: Socket) {
+        if (sock.isClosed) return
+        val key = "$host:$port"
+        val pool = connPool.getOrPut(key) { mutableListOf() }
+        synchronized(pool) {
+            if (pool.size < poolMax) pool.add(sock) else runCatching { sock.close() }
+        }
+    }
+
+    private fun writeResponseHeaders(
+        output: OutputStream,
+        statusLine: String,
+        respHeaders: List<String>,
+        keepAlive: Boolean
+    ) {
+        output.write("$statusLine\r\n".toByteArray())
+        for (h in respHeaders) {
+            if (h.startsWith("Proxy-", true)) continue
+            if (h.startsWith("Connection:", true)) continue
+            if (h.startsWith("Proxy-Connection:", true)) continue
+            output.write("$h\r\n".toByteArray())
+        }
+        output.write("Connection: ${if (keepAlive) "keep-alive" else "close"}\r\n\r\n".toByteArray())
+        output.flush()
+    }
+
+    /** Forward a chunked response verbatim (preserving chunk framing) to the client. */
+    private fun forwardChunkedResponse(input: InputStream, output: OutputStream) {
+        while (running.get()) {
+            val sizeLine = readLine(input) ?: return
+            output.write("$sizeLine\r\n".toByteArray())
+            val size = sizeLine.split(";")[0].trim().toIntOrNull(16) ?: return
+            if (size == 0) {
+                while (true) {
+                    val trailer = readLine(input) ?: return
+                    output.write("$trailer\r\n".toByteArray())
+                    if (trailer.isEmpty()) break
+                }
+                return
+            }
+            val body = ByteArray(size)
+            var read = 0
+            while (read < size) {
+                val n = input.read(body, read, size - read)
+                if (n <= 0) return
+                read += n
+            }
+            output.write(body, 0, size)
+            output.write("\r\n".toByteArray())
+            output.flush()
+            readLine(input) // consume trailing CRLF after chunk
+        }
+    }
+
+    private fun pumpFixed(input: InputStream, output: OutputStream, length: Long) {
+        val buf = ByteArray(32768)
+        var remaining = length
+        try {
+            while (remaining > 0 && running.get()) {
+                val toRead = minOf(buf.size.toLong(), remaining).toInt()
+                val n = input.read(buf, 0, toRead)
+                if (n <= 0) break
+                output.write(buf, 0, n)
+                output.flush()
+                remaining -= n
+            }
+        } catch (_: Exception) {
         }
     }
 
@@ -213,10 +341,10 @@ class HttpProxyServer(
             val hostPort = target.split(":")
             val host = hostPort[0]
             val port = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
-            val resolved = withContext(Dispatchers.IO) { InetAddress.getByName(host) }
+            val resolved = resolve(host)
             val up = Socket()
             cellularNetwork?.bindSocket(up)
-            up.connect(InetSocketAddress(resolved, port), 15000)
+            up.connect(InetSocketAddress(resolved, port), connectTimeoutMs)
             up.tcpNoDelay = true
             upstream = up
             output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray())
