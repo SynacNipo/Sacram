@@ -199,8 +199,13 @@ class Socks5Server(
             upstream = up
             replySuccess(output)
             onLog("TCP $target:$targetPort")
-            pump(input, up.getOutputStream())
-            pump(up.getInputStream(), output)
+            val jobIn = scope.launch {
+                try { pump(input, up.getOutputStream()) } finally { runCatching { up.shutdownOutput() } }
+            }
+            val jobOut = scope.launch {
+                try { pump(up.getInputStream(), output) } finally { runCatching { client.shutdownOutput() } }
+            }
+            jobIn.join(); jobOut.join()
         } catch (e: Exception) {
             onLog("TCP fail $target:$targetPort: ${e.message}")
             runCatching { replyError(output, 0x05) }

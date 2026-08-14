@@ -40,7 +40,7 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "SacramMain"
-        val PROXY_TYPE_LABELS = listOf("Auto (default mode)", "UDP / SOCKS5", "HTTP")
+        val PROXY_TYPE_LABELS = listOf("Auto (default mode)", "UDP / SOCKS5", "HTTP", "Hybrid (SOCKS5 + HTTP)")
     }
 
     private lateinit var tvStatus: TextView
@@ -238,9 +238,9 @@ class MainActivity : AppCompatActivity() {
             tvSaved.text = "Invalid HTTP port - not saved yet"
             return
         }
-        if (proxyType !in 0..2) {
+        if (proxyType !in 0..3) {
             tvSaved.setTextColor(0xFFC62828.toInt())
-            tvSaved.text = "Proxy type must be 0, 1, or 2 - not saved yet"
+            tvSaved.text = "Proxy type must be 0, 1, 2, or 3 - not saved yet"
             return
         }
         val prev = ConfigManager.load(this)

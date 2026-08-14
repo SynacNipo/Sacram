@@ -9,7 +9,7 @@ data class AppConfig(
     val password: String,
     val port: Int,
     val proxyMode: String = "socks5",
-    val proxyType: Int = 0, // 0=unset (use proxyMode), 1=UDP/SOCKS5, 2=HTTP
+    val proxyType: Int = 0, // 0=unset (use proxyMode), 1=UDP/SOCKS5, 2=HTTP, 3=Hybrid (SOCKS5+HTTP)
     val httpPort: Int = 8282,
     val telemetryPrompted: Boolean = false,
     val telemetryEnabled: Boolean = false,
@@ -19,9 +19,12 @@ data class AppConfig(
         return when (proxyType) {
             1 -> "socks5"
             2 -> "http"
+            3 -> "hybrid"
             else -> proxyMode
         }
     }
+
+    fun isHybrid(): Boolean = proxyType == 3
 }
 
 object ConfigManager {

@@ -180,36 +180,63 @@ class ProxyService : Service() {
             val actualPass = groupPass.ifEmpty { config.password }
             Log.i(TAG, "group formed ssid=$actualSsid goIp=$goIp")
 
+            val hybrid = config.isHybrid()
             val httpMode = config.effectiveMode() == "http"
-            AppState.httpMode.value = httpMode
+            AppState.httpMode.value = httpMode || hybrid
 
-            if (httpMode) {
-                updateStatus("Starting HTTP proxy on $goIp:${config.httpPort}...")
-                val server = HttpProxyServer(
-                    port = config.httpPort,
-                    context = this,
-                    onLog = { updateStatus("  $it") }
-                )
-                http = server
-                server.start()
-                Log.i(TAG, "HTTP proxy started on $goIp:${config.httpPort}")
-                AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
-                updateStatus("RUNNING (HTTP) - connect to '$actualSsid' then HTTP proxy $goIp:${config.httpPort}")
-                updateNotification(actualSsid, actualPass, goIp, config.httpPort)
-                Telemetry.send(this, "proxy_started", mapOf("mode" to "http", "port" to "${config.httpPort}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
-            } else {
-                updateStatus("Starting SOCKS5 proxy on $goIp:${config.port}...")
-                socks = Socks5Server(
-                    port = config.port,
-                    advertiseIp = goIp,
-                    context = this,
-                    onLog = { updateStatus("  $it") }
-                ).also { it.start() }
-                Log.i(TAG, "SOCKS5 started on $goIp:${config.port}")
-                AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
-                updateStatus("RUNNING - connect to '$actualSsid' then SOCKS5 $goIp:${config.port}")
-                updateNotification(actualSsid, actualPass, goIp, config.port)
-                Telemetry.send(this, "proxy_started", mapOf("mode" to "socks5", "port" to "${config.port}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
+            when {
+                httpMode -> {
+                    updateStatus("Starting HTTP proxy on $goIp:${config.httpPort}...")
+                    val server = HttpProxyServer(
+                        port = config.httpPort,
+                        context = this,
+                        onLog = { updateStatus("  $it") }
+                    )
+                    http = server
+                    server.start()
+                    Log.i(TAG, "HTTP proxy started on $goIp:${config.httpPort}")
+                    AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
+                    updateStatus("RUNNING (HTTP) - connect to '$actualSsid' then HTTP proxy $goIp:${config.httpPort}")
+                    updateNotification(actualSsid, actualPass, goIp, config.httpPort, 0, false)
+                    Telemetry.send(this, "proxy_started", mapOf("mode" to "http", "port" to "${config.httpPort}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
+                }
+                hybrid -> {
+                    updateStatus("Starting SOCKS5 proxy on $goIp:${config.port}...")
+                    socks = Socks5Server(
+                        port = config.port,
+                        advertiseIp = goIp,
+                        context = this,
+                        onLog = { updateStatus("  $it") }
+                    ).also { it.start() }
+                    Log.i(TAG, "SOCKS5 started on $goIp:${config.port}")
+                    updateStatus("Starting HTTP proxy on $goIp:${config.httpPort}...")
+                    val server = HttpProxyServer(
+                        port = config.httpPort,
+                        context = this,
+                        onLog = { updateStatus("  $it") }
+                    )
+                    http = server
+                    server.start()
+                    Log.i(TAG, "HTTP proxy started on $goIp:${config.httpPort}")
+                    AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
+                    updateStatus("RUNNING (HYBRID) - connect to '$actualSsid' then SOCKS5 $goIp:${config.port} and HTTP $goIp:${config.httpPort}")
+                    updateNotification(actualSsid, actualPass, goIp, config.port, config.httpPort, true)
+                    Telemetry.send(this, "proxy_started", mapOf("mode" to "hybrid", "port" to "${config.port}", "http_port" to "${config.httpPort}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
+                }
+                else -> {
+                    updateStatus("Starting SOCKS5 proxy on $goIp:${config.port}...")
+                    socks = Socks5Server(
+                        port = config.port,
+                        advertiseIp = goIp,
+                        context = this,
+                        onLog = { updateStatus("  $it") }
+                    ).also { it.start() }
+                    Log.i(TAG, "SOCKS5 started on $goIp:${config.port}")
+                    AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
+                    updateStatus("RUNNING - connect to '$actualSsid' then SOCKS5 $goIp:${config.port}")
+                    updateNotification(actualSsid, actualPass, goIp, config.port, 0, false)
+                    Telemetry.send(this, "proxy_started", mapOf("mode" to "socks5", "port" to "${config.port}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
+                }
             }
 
             // client count poller + health heartbeat (every 5 min)
@@ -223,14 +250,19 @@ class ProxyService : Service() {
                 }
                 beats++
                 if (beats % 60 == 0) {
+                    val (modeLabel, reportPort) = when {
+                        httpMode -> "http" to "${config.httpPort}"
+                        hybrid -> "hybrid" to "${config.port}"
+                        else -> "socks5" to "${config.port}"
+                    }
                     Telemetry.send(
                         this,
                         "heartbeat",
                         mapOf(
                             "uptime" to uptimeSeconds(),
                             "clients" to "${AppState.apInfo.value.clients}",
-                            "mode" to (if (httpMode) "http" else "socks5"),
-                            "port" to "${if (httpMode) config.httpPort else config.port}",
+                            "mode" to modeLabel,
+                            "port" to reportPort,
                             "running" to "true"
                         ) + Telemetry.batteryInfo(this)
                     )
@@ -359,13 +391,20 @@ class ProxyService : Service() {
             .build()
     }
 
-    private fun updateNotification(ssid: String, pass: String, ip: String, port: Int) {
+    private fun updateNotification(ssid: String, pass: String, ip: String, socksPort: Int, httpPort: Int, hybrid: Boolean) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val detail = if (hybrid) {
+            "SSID: $ssid\nSOCKS5: $ip:$socksPort\nHTTP: $ip:$httpPort\nPassword: $pass"
+        } else {
+            "SSID: $ssid\nIP: $ip:$socksPort\nPassword: $pass"
+        }
+        val summary = if (hybrid) "$ssid | SOCKS5 $ip:$socksPort | HTTP $ip:$httpPort | pass: $pass"
+        else "$ssid | $ip:$socksPort | pass: $pass"
         val notif = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_s)
             .setContentTitle("Sacram UDP Proxy - RUNNING")
-            .setContentText("$ssid | $ip:$port | pass: $pass")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("SSID: $ssid\nIP: $ip:$port\nPassword: $pass"))
+            .setContentText(summary)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
             .setContentIntent(PendingIntent.getActivity(
                 this, 0,
                 Intent(this, MainActivity::class.java),
