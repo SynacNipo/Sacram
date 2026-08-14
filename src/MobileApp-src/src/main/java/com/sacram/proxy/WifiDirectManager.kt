@@ -31,12 +31,17 @@ class WifiDirectManager(private val context: Context) {
         if (s.startsWith("DIRECT-")) {
             val rest = s.removePrefix("DIRECT-")
             if (rest.length >= 2 && rest.take(2).all { it.isLetterOrDigit() }) {
-                return s.take(32)
+                s = rest
             }
-            s = rest
         }
-        val code = (s.uppercase() + "AP").take(2).map { if (it.isLetterOrDigit()) it else 'A' }.joinToString("")
-        val name = "DIRECT-$code$s"
+        // sanitize the ENTIRE name to safe chars (letters, digits, dash);
+        // anything else (spaces, symbols, emoji) becomes 'A' so the result
+        // is always a valid WiFi Direct network name.
+        val body = s.map { c ->
+            if (c.isLetterOrDigit() || c == '-') c.uppercaseChar() else 'A'
+        }.joinToString("").ifEmpty { "SacramAP" }
+        val code = body.take(2)
+        val name = "DIRECT-$code$body"
         return name.take(32)
     }
 

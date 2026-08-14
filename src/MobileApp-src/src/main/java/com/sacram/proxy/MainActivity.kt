@@ -51,8 +51,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etPass: EditText
     private lateinit var etPort: EditText
     private lateinit var etProxyType: AutoCompleteTextView
-    private lateinit var tvHttpStatus: TextView
-    private lateinit var btnHttpToggle: Button
     private lateinit var etHttpPort: EditText
 
     private val saveHandler = Handler(Looper.getMainLooper())
@@ -85,8 +83,6 @@ class MainActivity : AppCompatActivity() {
         etPass = findViewById(R.id.etPass)
         etPort = findViewById(R.id.etPort)
         etProxyType = findViewById(R.id.etProxyType)
-        tvHttpStatus = findViewById(R.id.tvHttpStatus)
-        btnHttpToggle = findViewById(R.id.btnHttpToggle)
         etHttpPort = findViewById(R.id.etHttpPort)
 
         val config = ConfigManager.ensureConfig(this)
@@ -100,6 +96,7 @@ class MainActivity : AppCompatActivity() {
 
         setupTabs()
         setupAutosave()
+        setupEasterEgg()
 
         // Notify if no valid password is set, but don't block anything
         if (config.password.length !in 8..63) {
@@ -113,16 +110,7 @@ class MainActivity : AppCompatActivity() {
                 ProxyState.setShouldRun(this, false)
                 stopService(Intent(this, ProxyService::class.java))
             } else {
-                setModeAndStart("socks5")
-            }
-        }
-
-        btnHttpToggle.setOnClickListener {
-            if (AppState.running.value) {
-                ProxyState.setShouldRun(this, false)
-                stopService(Intent(this, ProxyService::class.java))
-            } else {
-                setModeAndStart("http")
+                startSelectedProxy()
             }
         }
 
@@ -132,7 +120,7 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                launch { AppState.status.collect { tvStatus.text = it; tvHttpStatus.text = it } }
+                launch { AppState.status.collect { tvStatus.text = it } }
                 launch { AppState.apInfo.collect { renderInfo(it) } }
                 launch { AppState.running.collect { renderRunning(it) } }
                 launch {
@@ -170,13 +158,11 @@ class MainActivity : AppCompatActivity() {
     private fun setupTabs() {
         val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
         val tabProxy = findViewById<LinearLayout>(R.id.tabProxy)
-        val tabHttp = findViewById<LinearLayout>(R.id.tabHttp)
         val tabKeepalive = findViewById<LinearLayout>(R.id.tabKeepalive)
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 tabProxy.visibility = if (tab.position == 0) View.VISIBLE else View.GONE
-                tabHttp.visibility = if (tab.position == 1) View.VISIBLE else View.GONE
-                tabKeepalive.visibility = if (tab.position == 2) View.VISIBLE else View.GONE
+                tabKeepalive.visibility = if (tab.position == 1) View.VISIBLE else View.GONE
             }
 
             override fun onTabUnselected(tab: TabLayout.Tab) {}
@@ -211,6 +197,21 @@ class MainActivity : AppCompatActivity() {
         etProxyType.setOnItemClickListener { _, _, position, _ ->
             etProxyType.setText(PROXY_TYPE_LABELS[position], false)
             autosave()
+        }
+    }
+
+    private var eggTaps = 0
+
+    private fun setupEasterEgg() {
+        tvStatus.setOnClickListener {
+            if (++eggTaps >= 7) {
+                eggTaps = 0
+                Toast.makeText(
+                    this,
+                    "\uD83D\uDEF0 You found the Sacram easter egg - stay proxy, my friend.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 
@@ -259,10 +260,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderRunning(running: Boolean) {
-        val httpMode = AppState.httpMode.value
         btnToggle.text = if (running) "STOP PROXY" else "START PROXY"
-        btnHttpToggle.text = if (running) "STOP HTTP PROXY" else "START HTTP PROXY"
-        btnHttpToggle.isEnabled = !running || httpMode
     }
 
     private fun renderInfo(info: ApInfo) {
@@ -274,23 +272,22 @@ class MainActivity : AppCompatActivity() {
             SSID:      ${info.ssid}
             Password:  ${info.passphrase}
             SOCKS5:    ${info.goIp}:${etPort.text.ifEmpty { "1080" }}
+            HTTP:      ${info.goIp}:${etHttpPort.text.ifEmpty { "8282" }}
             Clients:   ${info.clients}
         """.trimIndent()
     }
 
-    private fun setModeAndStart(mode: String) {
+    private fun startSelectedProxy() {
         val pass = etPass.text.toString()
-        Log.i(TAG, "START($mode) clicked - passLen=${pass.length}")
+        Log.i(TAG, "START clicked - passLen=${pass.length}")
         if (pass.length < 8 || pass.length > 63) {
             Log.w(TAG, "password invalid -> refusing to start")
             tvStatus.text = "ERROR: set a WiFi password (8-63 chars) first"
             Toast.makeText(this, "Set a WiFi password (8-63 chars) before starting", Toast.LENGTH_LONG).show()
             return
         }
-        val prev = ConfigManager.load(this)
-        val type = if (mode == "http") 2 else 1
-        etProxyType.setText(PROXY_TYPE_LABELS[type], false)
-        ConfigManager.save(this, prev.copy(proxyMode = mode, proxyType = type))
+        val idx = PROXY_TYPE_LABELS.indexOf(etProxyType.text.toString()).let { if (it < 0) 0 else it }
+        etProxyType.setText(PROXY_TYPE_LABELS[idx], false)
         autosave()
         checkPermissionsAndStart()
     }

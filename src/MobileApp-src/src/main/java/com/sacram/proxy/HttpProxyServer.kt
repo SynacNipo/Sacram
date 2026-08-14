@@ -45,9 +45,10 @@ class HttpProxyServer(
     private var netCallback: ConnectivityManager.NetworkCallback? = null
 
     private val dnsCache = ConcurrentHashMap<String, Pair<InetAddress, Long>>()
-    private val connPool = ConcurrentHashMap<String, MutableList<Socket>>()
+    private val connPool = ConcurrentHashMap<String, MutableList<Pair<Socket, Long>>>()
     private val dnsTtlMs = 60_000L
     private val poolMax = 4
+    private val poolIdleMs = 60_000L
     private val connectTimeoutMs = 10_000
     private val readTimeoutMs = 20_000
 
@@ -59,10 +60,12 @@ class HttpProxyServer(
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 cellularNetwork = network
+                clearPool()
                 onLog("Bound to cellular network: $network")
             }
             override fun onLost(network: Network) {
                 if (cellularNetwork == network) cellularNetwork = null
+                clearPool()
             }
         }
         netCallback = cb
@@ -85,6 +88,7 @@ class HttpProxyServer(
     fun stop() {
         running.set(false)
         runCatching { serverSocket?.close() }
+        clearPool()
         netCallback?.let {
             runCatching {
                 (context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager)
@@ -246,7 +250,12 @@ class HttpProxyServer(
         val pool = connPool[key]
         var reused: Socket? = null
         if (pool != null) {
-            synchronized(pool) { reused = pool.removeLastOrNull() }
+            synchronized(pool) {
+                val now = System.currentTimeMillis()
+                pool.removeAll { it.second + poolIdleMs < now || it.first.isClosed }
+                val entry = pool.removeLastOrNull()
+                if (entry != null) reused = entry.first
+            }
         }
         if (reused != null && !reused.isClosed) {
             return reused
@@ -265,7 +274,22 @@ class HttpProxyServer(
         val key = "$host:$port"
         val pool = connPool.getOrPut(key) { mutableListOf() }
         synchronized(pool) {
-            if (pool.size < poolMax) pool.add(sock) else runCatching { sock.close() }
+            val now = System.currentTimeMillis()
+            pool.removeAll { it.second + poolIdleMs < now || it.first.isClosed }
+            if (pool.size < poolMax) {
+                pool.add(sock to now)
+            } else {
+                runCatching { sock.close() }
+            }
+        }
+    }
+
+    private fun clearPool() {
+        for ((_, list) in connPool) {
+            synchronized(list) {
+                for ((sock, _) in list) runCatching { sock.close() }
+                list.clear()
+            }
         }
     }
 

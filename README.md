@@ -31,9 +31,9 @@ Known open issues being worked on:
 Android app (Kotlin) that turns any spare Android phone into a **WiFi Direct hotspot + proxy** so a PC can reach the internet through the phone's data connection — UDP included.
 
 1. Starts a **WiFi Direct** access point (Group Owner) with a custom, changeable SSID + password
-2. Runs a proxy on the phone:
-   - **SOCKS5** (Proxy tab) — TCP CONNECT + UDP ASSOCIATE (RFC 1928), default port `1080`
-   - **HTTP** (HTTP tab) — plain HTTP proxy + CONNECT tunnels, TCP only, default port `8282`
+2. Runs a proxy on the phone (pick the mode with the **Proxy Type** dropdown):
+   - **SOCKS5** — TCP CONNECT + UDP ASSOCIATE (RFC 1928), default port `1080`
+   - **HTTP** — plain HTTP proxy + CONNECT tunnels, TCP only, default port `8282`
 3. Lets a connected PC / device reach the internet through the phone's data connection
 4. Runs as an **aggressive foreground service** (wakelocks, WiFi lock, `START_STICKY`, battery-exemption + autostart shortcuts)
 
