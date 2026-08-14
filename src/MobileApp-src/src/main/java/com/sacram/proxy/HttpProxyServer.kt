@@ -240,7 +240,11 @@ class HttpProxyServer(
         val now = System.currentTimeMillis()
         val cached = dnsCache[host]
         if (cached != null && cached.second > now) return cached.first
-        val addr = InetAddress.getByName(host)
+        // Resolve on the same network the upstream socket is bound to. Using the
+        // default resolver would query the WiFi Direct interface (no DNS/internet)
+        // when the phone is the group owner, so every request would fail to resolve.
+        val addr = cellularNetwork?.getAllByName(host)?.firstOrNull()
+            ?: InetAddress.getByName(host)
         dnsCache[host] = addr to (now + dnsTtlMs)
         return addr
     }

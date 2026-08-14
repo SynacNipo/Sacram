@@ -193,6 +193,14 @@ class Socks5Server(
         }
     }
 
+    private fun resolve(host: String): InetAddress {
+        // Resolve on the same network the upstream socket is bound to. The default
+        // resolver would query the WiFi Direct interface (no DNS/internet) when the
+        // phone is the group owner, so the connection would fail to resolve the host.
+        return cellularNetwork?.getAllByName(host)?.firstOrNull()
+            ?: InetAddress.getByName(host)
+    }
+
     private suspend fun handleConnect(
         client: Socket,
         input: DataInputStream,
@@ -202,7 +210,7 @@ class Socks5Server(
     ) {
         var upstream: Socket? = null
         try {
-            val resolved = withContext(Dispatchers.IO) { InetAddress.getByName(target) }
+            val resolved = withContext(Dispatchers.IO) { resolve(target) }
             val up = Socket()
             cellularNetwork?.bindSocket(up)
             up.connect(InetSocketAddress(resolved, targetPort), 15000)
@@ -286,7 +294,7 @@ class Socks5Server(
             }
             val sessionNow = udpSessions[clientKey] ?: return
             sessionNow.lastActivity = System.currentTimeMillis()
-            val dstAddr = InetAddress.getByName(dstHost)
+            val dstAddr = resolve(dstHost)
             sessionNow.socket.send(DatagramPacket(payload, payload.size, dstAddr, dstPort))
         } catch (_: Exception) {
         }
