@@ -43,6 +43,7 @@ class HttpProxyServer(
     private var tcpJob: Job? = null
     private var cellularNetwork: Network? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
+    private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
     private val dnsCache = ConcurrentHashMap<String, Pair<InetAddress, Long>>()
     private val connPool = ConcurrentHashMap<String, MutableList<Pair<Socket, Long>>>()
@@ -56,6 +57,7 @@ class HttpProxyServer(
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val request = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
@@ -236,14 +238,14 @@ class HttpProxyServer(
         }
     }
 
-    private fun resolve(host: String): InetAddress {
+    private fun resolve(host: String, net: Network?): InetAddress {
         val now = System.currentTimeMillis()
         val cached = dnsCache[host]
         if (cached != null && cached.second > now) return cached.first
         // Resolve on the same network the upstream socket is bound to. Using the
         // default resolver would query the WiFi Direct interface (no DNS/internet)
         // when the phone is the group owner, so every request would fail to resolve.
-        val addr = cellularNetwork?.getAllByName(host)?.firstOrNull()
+        val addr = net?.getAllByName(host)?.firstOrNull()
             ?: InetAddress.getByName(host)
         dnsCache[host] = addr to (now + dnsTtlMs)
         return addr
@@ -264,9 +266,10 @@ class HttpProxyServer(
         if (reused != null && !reused.isClosed) {
             return reused
         }
-        val addr = resolve(host)
+        val net = NetworkUtils.pickCellular(cm, cellularNetwork)
+        val addr = resolve(host, net)
         val up = Socket()
-        cellularNetwork?.bindSocket(up)
+        net?.bindSocket(up)
         up.soTimeout = readTimeoutMs
         up.tcpNoDelay = true
         up.connect(InetSocketAddress(addr, port), connectTimeoutMs)
@@ -369,9 +372,10 @@ class HttpProxyServer(
             val hostPort = target.split(":")
             val host = hostPort[0]
             val port = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
-            val resolved = resolve(host)
+            val net = NetworkUtils.pickCellular(cm, cellularNetwork)
+            val resolved = resolve(host, net)
             val up = Socket()
-            cellularNetwork?.bindSocket(up)
+            net?.bindSocket(up)
             up.connect(InetSocketAddress(resolved, port), connectTimeoutMs)
             up.tcpNoDelay = true
             upstream = up

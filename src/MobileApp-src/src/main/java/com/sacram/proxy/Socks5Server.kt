@@ -49,10 +49,13 @@ class Socks5Server(
 
     private val maxUdpSessions = 1024
 
+    private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
     private fun bindToCellular() {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val request = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
@@ -193,11 +196,11 @@ class Socks5Server(
         }
     }
 
-    private fun resolve(host: String): InetAddress {
+    private fun resolve(host: String, net: Network?): InetAddress {
         // Resolve on the same network the upstream socket is bound to. The default
         // resolver would query the WiFi Direct interface (no DNS/internet) when the
         // phone is the group owner, so the connection would fail to resolve the host.
-        return cellularNetwork?.getAllByName(host)?.firstOrNull()
+        return net?.getAllByName(host)?.firstOrNull()
             ?: InetAddress.getByName(host)
     }
 
@@ -210,9 +213,10 @@ class Socks5Server(
     ) {
         var upstream: Socket? = null
         try {
-            val resolved = withContext(Dispatchers.IO) { resolve(target) }
+            val net = NetworkUtils.pickCellular(cm, cellularNetwork)
+            val resolved = withContext(Dispatchers.IO) { resolve(target, net) }
             val up = Socket()
-            cellularNetwork?.bindSocket(up)
+            net?.bindSocket(up)
             up.connect(InetSocketAddress(resolved, targetPort), 15000)
             up.tcpNoDelay = true
             upstream = up
@@ -286,7 +290,7 @@ class Socks5Server(
             if (session == null) {
                 enforceUdpSessionCap()
                 val fwd = DatagramSocket()
-                cellularNetwork?.bindSocket(fwd)
+                NetworkUtils.pickCellular(cm, cellularNetwork)?.bindSocket(fwd)
                 fwd.soTimeout = 1000
                 val newSession = UdpSession(fwd)
                 udpSessions[clientKey] = newSession
@@ -294,7 +298,7 @@ class Socks5Server(
             }
             val sessionNow = udpSessions[clientKey] ?: return
             sessionNow.lastActivity = System.currentTimeMillis()
-            val dstAddr = resolve(dstHost)
+            val dstAddr = resolve(dstHost, NetworkUtils.pickCellular(cm, cellularNetwork))
             sessionNow.socket.send(DatagramPacket(payload, payload.size, dstAddr, dstPort))
         } catch (_: Exception) {
         }
