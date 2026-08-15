@@ -110,19 +110,25 @@ You are shown exactly what is collected and must explicitly agree before it is
 enabled (first-launch prompt with a consent checkbox); toggle it off anytime via
 `telemetry_enabled=false` in config.txt.
 
-### Locking down the collector (required)
+### Locking down the collector
 
-The Cloudflare Worker requires a secret token on **every** request, including
-ingestion. Without it the worker refuses all reads and writes:
+Ingestion (`POST /collect`) is **open** so the opted-in app sends telemetry with
+no per-user secret — that's how telemetry normally works, and the store is
+anonymous and capped so abuse is bounded.
+
+Reading the data (dashboard, `/data`, `/stats`) is **locked** behind a secret
+token so nobody can view the collected domains/status. Set it once on the
+worker:
 
 ```bash
-wrangler secret put VIEW_TOKEN   # value you choose; same value goes in collector_token
+wrangler secret put VIEW_TOKEN   # any value you choose
 ```
 
-Set the same value in the phone's `config.txt` (`collector_token=...`) so the
-app can authenticate. The dashboard is reached by visiting
-`https://<your-worker>/?token=<VIEW_TOKEN>`; a session cookie is then set so
-sub-links keep working without re-passing the token in the URL.
+Then view the dashboard at `https://<your-worker>/?token=<VIEW_TOKEN>`; a
+session cookie is set so sub-links keep working without re-passing the token in
+the URL. The optional `collector_token` field in `config.txt` is only used if
+you also want the app to authenticate its writes — it is **not required** for
+telemetry to work.
 
 ## Building
 
