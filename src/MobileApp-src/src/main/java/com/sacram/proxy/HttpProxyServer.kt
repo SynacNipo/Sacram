@@ -419,10 +419,10 @@ class HttpProxyServer(
         target: String
     ) {
         var upstream: Socket? = null
+        val hostPort = target.split(":")
+        val host = hostPort[0]
+        val port = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
         try {
-            val hostPort = target.split(":")
-            val host = hostPort[0]
-            val port = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
             val net = NetworkUtils.pickCellular(cm, cellularNetwork) ?: lastGoodCellular
             val resolved = resolve(host, net)
             val up = Socket()
