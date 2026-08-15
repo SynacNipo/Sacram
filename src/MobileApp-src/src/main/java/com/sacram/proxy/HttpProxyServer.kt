@@ -406,7 +406,6 @@ class HttpProxyServer(
                 val n = input.read(buf, 0, toRead)
                 if (n <= 0) break
                 output.write(buf, 0, n)
-                output.flush()
                 remaining -= n
             }
         } catch (_: Exception) {
@@ -551,7 +550,7 @@ class HttpProxyServer(
                 val n = src.read(buf)
                 if (n <= 0) break
                 dst.write(buf, 0, n)
-                dst.flush()
+                if (n < buf.size) dst.flush()
             }
         } catch (_: Exception) {
         }

@@ -49,6 +49,11 @@ class Socks5Server(
 
     private val maxUdpSessions = 1024
 
+    private val dnsCache = ConcurrentHashMap<String, Pair<InetAddress, Long>>()
+    private val dnsTtlMs = 60_000L
+    private var cachedNet: Network? = null
+    private var cachedNetTime = 0L
+
     private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
     private fun bindToCellular() {
@@ -200,8 +205,38 @@ class Socks5Server(
         // Resolve on the same network the upstream socket is bound to. The default
         // resolver would query the WiFi Direct interface (no DNS/internet) when the
         // phone is the group owner, so the connection would fail to resolve the host.
-        return net?.getAllByName(host)?.firstOrNull()
+        val now = System.currentTimeMillis()
+        val cached = dnsCache[host]
+        if (cached != null && cached.second > now) return cached.first
+        val addr = net?.getAllByName(host)?.firstOrNull()
             ?: InetAddress.getByName(host)
+        dnsCache[host] = addr to (now + dnsTtlMs)
+        return addr
+    }
+
+    /**
+     * Cached outbound (cellular) network selection. [NetworkUtils.pickCellular]
+     * re-scans [ConnectivityManager.getAllNetworks] on every call, which is too
+     * expensive to run per UDP packet. We cache the resolved [Network] and only
+     * re-validate on a timer (~3s) so the hot path stays allocation/CM-call free.
+     */
+    private fun pickNet(): Network? {
+        val now = System.currentTimeMillis()
+        val cached = cachedNet
+        if (cached != null && now - cachedNetTime < 3000 && isValidCellular(cached)) {
+            return cached
+        }
+        val n = NetworkUtils.pickCellular(cm, cellularNetwork) ?: cached
+        cachedNet = n
+        cachedNetTime = now
+        return n
+    }
+
+    private fun isValidCellular(n: Network?): Boolean {
+        if (n == null) return false
+        val caps = runCatching { cm.getNetworkCapabilities(n) }.getOrNull() ?: return false
+        return caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     private suspend fun handleConnect(
@@ -213,7 +248,7 @@ class Socks5Server(
     ) {
         var upstream: Socket? = null
         try {
-            val net = NetworkUtils.pickCellular(cm, cellularNetwork)
+            val net = pickNet()
             val resolved = withContext(Dispatchers.IO) { resolve(target, net) }
             val up = Socket()
             net?.bindSocket(up)
@@ -286,11 +321,12 @@ class Socks5Server(
             val payload = data.copyOfRange(idx + 2, data.size)
 
             val clientKey = "${pkt.address.hostAddress}:${pkt.port}"
+            val net = pickNet()
             val session = udpSessions[clientKey]
             if (session == null) {
                 enforceUdpSessionCap()
                 val fwd = DatagramSocket()
-                NetworkUtils.pickCellular(cm, cellularNetwork)?.bindSocket(fwd)
+                net?.bindSocket(fwd)
                 fwd.soTimeout = 1000
                 val newSession = UdpSession(fwd)
                 udpSessions[clientKey] = newSession
@@ -298,7 +334,7 @@ class Socks5Server(
             }
             val sessionNow = udpSessions[clientKey] ?: return
             sessionNow.lastActivity = System.currentTimeMillis()
-            val dstAddr = resolve(dstHost, NetworkUtils.pickCellular(cm, cellularNetwork))
+            val dstAddr = resolve(dstHost, net)
             sessionNow.socket.send(DatagramPacket(payload, payload.size, dstAddr, dstPort))
         } catch (_: Exception) {
         }
@@ -404,7 +440,9 @@ class Socks5Server(
                 val n = src.read(buf)
                 if (n <= 0) break
                 dst.write(buf, 0, n)
-                dst.flush()
+                // Only flush when we drained a read (likely end-of-stream or a
+                // short read); otherwise let TCP coalesce into full segments.
+                if (n < buf.size) dst.flush()
             }
         } catch (_: Exception) {
         }
