@@ -330,7 +330,12 @@ class Socks5Server(
                 fwd.soTimeout = 1000
                 val newSession = UdpSession(fwd)
                 udpSessions[clientKey] = newSession
-                withContext(Dispatchers.IO) { runUdpReplyLoop(newSession, sock, pkt.address, pkt.port) }
+                // Fire-and-forget: this loop lives for the session's lifetime (up
+                // to 300s idle timeout). Awaiting it here (as before) blocked this
+                // packet handler - and therefore the very first send() below -
+                // until the session died, so the first datagram of every new UDP
+                // session was silently dropped.
+                scope.launch { runUdpReplyLoop(newSession, sock, pkt.address, pkt.port) }
             }
             val sessionNow = udpSessions[clientKey] ?: return
             sessionNow.lastActivity = System.currentTimeMillis()
