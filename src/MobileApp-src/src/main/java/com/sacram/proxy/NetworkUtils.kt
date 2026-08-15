@@ -25,7 +25,10 @@ object NetworkUtils {
         for (n in runCatching { cm.allNetworks }.getOrNull().orEmpty()) {
             if (isValidCellular(cm, n)) return n
         }
-        return runCatching { cm.activeNetwork }.getOrNull()
+        // Do NOT fall back to the active network: while the phone is a WiFi-Direct
+        // Group Owner the active network is the P2P interface, which has no
+        // internet. Returning it would silently route egress to a dead path.
+        return null
     }
 
     private fun isValidCellular(cm: ConnectivityManager, n: Network?): Boolean {

@@ -26,6 +26,7 @@ import java.net.Socket
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * HTTP proxy (RFC 7230 style): handles plain HTTP requests with absolute-form
@@ -42,11 +43,20 @@ class HttpProxyServer(
     private var serverSocket: ServerSocket? = null
     private var tcpJob: Job? = null
     private var cellularNetwork: Network? = null
+    // Last network we confirmed had cellular+internet. We keep this even after a
+    // transient onLost so egress never silently falls back to the WiFi-Direct
+    // interface (which has no internet) and kills every connection at once.
+    private var lastGoodCellular: Network? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
     private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
     private val dnsCache = ConcurrentHashMap<String, Pair<InetAddress, Long>>()
     private val connPool = ConcurrentHashMap<String, MutableList<Pair<Socket, Long>>>()
+    // Per-request telemetry sampler: we never log full URLs, only the host
+    // (domain) and HTTP status, and we sample successes heavily so a busy
+    // browsing session can't flood the capped telemetry store. Failures are
+    // always reported so connection breakage is captured.
+    private val reqCounter = AtomicInteger(0)
     private val dnsTtlMs = 60_000L
     private val poolMax = 4
     private val poolIdleMs = 60_000L
@@ -62,19 +72,34 @@ class HttpProxyServer(
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 cellularNetwork = network
+                lastGoodCellular = network
                 clearPool()
                 onLog("Bound to cellular network: $network")
             }
             override fun onLost(network: Network) {
-                if (cellularNetwork == network) cellularNetwork = null
-                clearPool()
+                if (cellularNetwork != network) return
+                // A blip while we're the WiFi-Direct Group Owner is common. Don't
+                // drop egress: try to find another live cellular network first,
+                // otherwise keep the reference so callers can still bind to it.
+                val alt = cm.allNetworks.firstOrNull { isValidCellular(it) }
+                if (alt != null && alt != network) {
+                    cellularNetwork = alt
+                    lastGoodCellular = alt
+                    clearPool()
+                    onLog("Cellular network switched: $network -> $alt")
+                } else {
+                    // No replacement yet - keep cellularNetwork as-is (the lost
+                    // object may still route). Crucially we do NOT clear the pool
+                    // and we do NOT fall back to the WiFi-Direct interface.
+                    onLog("WARNING: cellular network $network lost; keeping it for egress until a replacement is found")
+                }
             }
         }
         netCallback = cb
         cm.requestNetwork(request, cb)
         scope.launch {
             delay(3000)
-            if (cellularNetwork == null) {
+            if (cellularNetwork == null && lastGoodCellular == null) {
                 onLog("WARNING: no cellular network available - outbound sockets use the default route")
             }
         }
@@ -206,6 +231,8 @@ class HttpProxyServer(
             val upIn = upstream.getInputStream()
             val statusLine = readLine(upIn) ?: throw IOException("no response from upstream")
             val respHeaders = readHeaders(upIn) ?: throw IOException("no response headers")
+            val statusCode = statusLine.split(" ")[1]
+            reportRequest(host, port, method, statusCode)
 
             val chunked = respHeaders.any {
                 it.startsWith("Transfer-Encoding:", true) && it.contains("chunked", true)
@@ -232,10 +259,35 @@ class HttpProxyServer(
             }
         } catch (e: Exception) {
             onLog("HTTP fail $host:$port: ${e.message}")
+            reportRequest(host, port, method, "fail")
             writeSimpleResponse(output, 502, "Bad Gateway - ${e.message}")
         } finally {
             runCatching { upstream?.close() }
         }
+    }
+
+    private fun isValidCellular(n: Network?): Boolean {
+        if (n == null) return false
+        val caps = runCatching { cm.getNetworkCapabilities(n) }.getOrNull() ?: return false
+        return caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun reportRequest(host: String, port: Int, method: String, status: String) {
+        val n = reqCounter.incrementAndGet()
+        val code = status.toIntOrNull() ?: -1
+        val isFailure = status == "fail" || code >= 400
+        // Sample ~1 in 10 successful requests; always report failures.
+        if (!isFailure && n % 10 != 0) return
+        Telemetry.send(
+            context, "http_request",
+            mapOf(
+                "host" to host,
+                "port" to "$port",
+                "method" to method,
+                "status" to status
+            )
+        )
     }
 
     private fun resolve(host: String, net: Network?): InetAddress {
@@ -266,7 +318,7 @@ class HttpProxyServer(
         if (reused != null && !reused.isClosed) {
             return reused
         }
-        val net = NetworkUtils.pickCellular(cm, cellularNetwork)
+        val net = NetworkUtils.pickCellular(cm, cellularNetwork) ?: lastGoodCellular
         val addr = resolve(host, net)
         val up = Socket()
         net?.bindSocket(up)
@@ -372,7 +424,7 @@ class HttpProxyServer(
             val hostPort = target.split(":")
             val host = hostPort[0]
             val port = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
-            val net = NetworkUtils.pickCellular(cm, cellularNetwork)
+            val net = NetworkUtils.pickCellular(cm, cellularNetwork) ?: lastGoodCellular
             val resolved = resolve(host, net)
             val up = Socket()
             net?.bindSocket(up)
@@ -382,6 +434,7 @@ class HttpProxyServer(
             output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray())
             output.flush()
             onLog("CONNECT $host:$port")
+            reportRequest(host, port, "CONNECT", "200")
             // CONNECT tunnels are full-duplex: pump both directions concurrently
             // (sequential pumping stalls HTTPS because the client keeps the
             // request stream open while expecting the response to flow back).
@@ -393,6 +446,7 @@ class HttpProxyServer(
             }
         } catch (e: Exception) {
             onLog("CONNECT fail $target: ${e.message}")
+            reportRequest(host, port, "CONNECT", "fail")
             writeSimpleResponse(output, 502, "Bad Gateway - ${e.message}")
         } finally {
             runCatching { upstream?.close() }

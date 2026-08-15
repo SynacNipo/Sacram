@@ -59,6 +59,7 @@ http_port=8282
 telemetry_prompted=true
 telemetry_enabled=true
 collector_url=https://sacram-telemetry.synacnipo.workers.dev
+collector_token=YOUR_WORKER_VIEW_TOKEN
 ```
 
 `proxy_type` (optional): `0` = use `proxy_mode` as-is (default), `1` = UDP/SOCKS5, `2` = HTTP.
@@ -94,10 +95,34 @@ lock the app in the recent-apps list.
 
 ## Telemetry (anonymous, opt-in)
 
-The app can send anonymous usage data — device model, Android version, app
-version, proxy success/errors, and a 30-minute heartbeat while the app is
-open. **No SSID, password, IP or personal data is ever sent.** You choose on
-first launch; toggle anytime via `telemetry_enabled` in config.txt.
+The app can send anonymous usage data to help improve the proxy. When enabled,
+it sends:
+
+- Device model, Android version, app version
+- Proxy lifecycle events, errors and heartbeats
+- **The domain names (hosts) of sites you access through the proxy and their
+  HTTP status codes** — sampled (~1 in 10 successful requests, all failures) so
+  a busy browsing session can't flood the store. This is used to debug
+  connection drops and is the main reason telemetry exists.
+
+**No full URLs, search queries, SSID, password or IP addresses are ever sent.**
+You are shown exactly what is collected and must explicitly agree before it is
+enabled (first-launch prompt with a consent checkbox); toggle it off anytime via
+`telemetry_enabled=false` in config.txt.
+
+### Locking down the collector (required)
+
+The Cloudflare Worker requires a secret token on **every** request, including
+ingestion. Without it the worker refuses all reads and writes:
+
+```bash
+wrangler secret put VIEW_TOKEN   # value you choose; same value goes in collector_token
+```
+
+Set the same value in the phone's `config.txt` (`collector_token=...`) so the
+app can authenticate. The dashboard is reached by visiting
+`https://<your-worker>/?token=<VIEW_TOKEN>`; a session cookie is then set so
+sub-links keep working without re-passing the token in the URL.
 
 ## Building
 

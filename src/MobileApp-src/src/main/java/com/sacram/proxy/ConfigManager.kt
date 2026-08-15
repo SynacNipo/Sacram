@@ -13,7 +13,8 @@ data class AppConfig(
     val httpPort: Int = 8282,
     val telemetryPrompted: Boolean = false,
     val telemetryEnabled: Boolean = false,
-    val collectorUrl: String = "https://sacram-telemetry.synacnipo.workers.dev"
+    val collectorUrl: String = "https://sacram-telemetry.synacnipo.workers.dev",
+    val collectorToken: String = ""
 ) {
     fun effectiveMode(): String {
         return when (proxyType) {
@@ -95,7 +96,9 @@ object ConfigManager {
                 telemetryPrompted = p.getProperty("telemetry_prompted", "false").toBoolean(),
                 telemetryEnabled = p.getProperty("telemetry_enabled", "false").toBoolean(),
                 collectorUrl = p.getProperty("collector_url", defaultConfig.collectorUrl)
-                    .ifBlank { defaultConfig.collectorUrl }
+                    .ifBlank { defaultConfig.collectorUrl },
+                collectorToken = p.getProperty("collector_token", defaultConfig.collectorToken)
+                    .ifBlank { defaultConfig.collectorToken }
             )
         } catch (_: Exception) {
             defaultConfig

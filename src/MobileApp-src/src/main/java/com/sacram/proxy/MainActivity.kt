@@ -18,10 +18,12 @@ import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import android.content.DialogInterface
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -295,13 +297,35 @@ class MainActivity : AppCompatActivity() {
     private fun maybeShowTelemetryPrompt() {
         val cfg = ConfigManager.load(this)
         if (cfg.telemetryPrompted) return
-        MaterialAlertDialogBuilder(this)
+
+        val message = "Sacram can send anonymous usage data to help improve the app. When enabled it collects:\n\n" +
+            "• Device model, Android version, app version\n" +
+            "• Proxy events, errors and heartbeats\n" +
+            "• The domain names (hosts) of sites you access through the proxy and their HTTP status codes — used to debug connection drops. No full URLs, search queries, SSID, password or IP addresses are ever collected.\n\n" +
+            "You can disable it anytime by setting telemetry_enabled=false in config.txt."
+
+        val checkBox = CheckBox(this).apply {
+            text = "I understand and agree to share this data"
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+            textSize = 14f
+        }
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 24, 40, 8)
+            val tv = TextView(this@MainActivity).apply {
+                text = message
+                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
+                textSize = 14f
+                setLineSpacing(2f, 1.1f)
+            }
+            addView(tv)
+            addView(checkBox)
+        }
+
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("Help improve Sacram?")
-            .setMessage(
-                "Send anonymous app usage data (device model, Android version, proxy errors) " +
-                    "so the app can be improved? No SSID, password or personal data is ever sent. " +
-                    "You can opt out anytime by editing config.txt."
-            )
+            .setView(body)
+            .setCancelable(false)
             .setNegativeButton("No thanks") { d, _ ->
                 ConfigManager.save(this, cfg.copy(telemetryPrompted = true, telemetryEnabled = false))
                 d.dismiss()
@@ -312,7 +336,18 @@ class MainActivity : AppCompatActivity() {
                 Telemetry.send(this, "telemetry_opted_in")
             }
             .create()
-            .show()
+
+        dialog.setOnShowListener {
+            val positive = dialog.getButton(DialogInterface.BUTTON_POSITIVE)
+            val negative = dialog.getButton(DialogInterface.BUTTON_NEGATIVE)
+            // Theme colorPrimary is near-black, which made these buttons
+            // invisible on the dark dialog - force readable colors.
+            positive.setTextColor(ContextCompat.getColor(this, R.color.on_primary))
+            negative.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+            positive.isEnabled = false
+            checkBox.setOnCheckedChangeListener { _, checked -> positive.isEnabled = checked }
+        }
+        dialog.show()
     }
 
     private fun checkPermissionsAndStart() {

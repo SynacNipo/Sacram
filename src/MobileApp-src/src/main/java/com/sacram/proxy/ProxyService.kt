@@ -269,6 +269,8 @@ class ProxyService : Service() {
                 }
             }
         } catch (e: Exception) {
+            // A cancelled coroutine (normal shutdown / restart) is not an error.
+            if (e is kotlinx.coroutines.CancellationException) return
             Log.e(TAG, "pipeline error", e)
             Telemetry.send(this, "proxy_error", mapOf("reason" to (e.message ?: "unknown")) + Telemetry.batteryInfo(this))
             updateStatus("ERROR: ${e.message}")

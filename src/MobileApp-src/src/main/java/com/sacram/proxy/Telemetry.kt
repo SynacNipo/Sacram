@@ -52,6 +52,10 @@ object Telemetry {
                 conn.readTimeout = 4000
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/json")
+                val token = cfg.collectorToken
+                if (token.isNotBlank()) {
+                    conn.setRequestProperty("Authorization", "Bearer $token")
+                }
                 conn.outputStream.use { it.write(payload.toString().toByteArray()) }
                 conn.inputStream.use { it.readBytes() }
                 conn.disconnect()
