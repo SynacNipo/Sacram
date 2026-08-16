@@ -105,6 +105,7 @@ class ProxyService : Service() {
         }
         if (started.compareAndSet(false, true)) {
             startedAt = System.currentTimeMillis()
+            AppState.serviceStartedAt = startedAt
             ProxyState.setShouldRun(this, true)
             scheduleWatchdog(this)
             keepAliveJob = KeepAlive.launch(scope, this)
@@ -194,6 +195,8 @@ class ProxyService : Service() {
                     val server = HttpProxyServer(
                         port = config.httpPort,
                         context = this,
+                        goIp = goIp,
+                        panelEnabled = config.panelEnabled,
                         onLog = { updateStatus("  $it") }
                     )
                     http = server
@@ -217,6 +220,8 @@ class ProxyService : Service() {
                     val server = HttpProxyServer(
                         port = config.httpPort,
                         context = this,
+                        goIp = goIp,
+                        panelEnabled = config.panelEnabled,
                         onLog = { updateStatus("  $it") }
                     )
                     http = server

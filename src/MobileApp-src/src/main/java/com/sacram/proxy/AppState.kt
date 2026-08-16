@@ -14,4 +14,5 @@ object AppState {
     val apInfo = MutableStateFlow(ApInfo())
     val running = MutableStateFlow(false)
     val httpMode = MutableStateFlow(false)
+    var serviceStartedAt: Long = 0L
 }

@@ -65,6 +65,7 @@ collector_token=YOUR_WORKER_VIEW_TOKEN
 keepalive_url=https://sacram-telemetry.synacnipo.workers.dev/keepalive
 keepalive_interval_ms=60000
 wifi_autorestore_min=5
+panel_enabled=true
 ```
 
 `proxy_type` (optional): `0` = use `proxy_mode` as-is (default), `1` = UDP/SOCKS5, `2` = HTTP.
@@ -84,6 +85,22 @@ For systemwide **TCP + UDP** (games, DNS, UDP apps) the PC client must use a
 **TUN-mode** client — a plain "system proxy" setting only handles HTTP(S) apps
 and will NOT carry UDP. Use the bundled sing-box client
 (`SacramConnect.bat`) for systemwide TCP + UDP instead.
+
+## Control panel
+
+While the **HTTP proxy** is running, open a browser on the connected PC/device
+and visit `http://192.168.49.1:8282/` (or `http://<group-ip>:<http-port>/`).
+Because the browser connects *directly* to the proxy, Sacram serves a small
+local **control panel** instead of forwarding the request:
+
+- Live status: running state, uptime, mode, SSID/password, group IP, client count
+- Edit keep-alive URL + interval, WiFi auto-restore minutes, telemetry and panel
+  toggles — changes apply **live** (no restart needed)
+
+The panel is reachable by **anyone on the WiFi Direct network**, so only enable
+it on networks you trust. Disable it with `panel_enabled=false` in `config.txt`
+or via the panel's own checkbox. It does not affect normal proxy/CONNECT traffic
+— only requests aimed at the proxy's own address.
 
 ## Keep-alive (so the OS doesn't kill it)
 

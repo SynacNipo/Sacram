@@ -35,6 +35,8 @@ import java.util.concurrent.atomic.AtomicInteger
 class HttpProxyServer(
     private val port: Int,
     private val context: Context,
+    private val goIp: String = "192.168.49.1",
+    private val panelEnabled: Boolean = true,
     private val onLog: (String) -> Unit = {}
 ) {
 
@@ -162,6 +164,11 @@ class HttpProxyServer(
 
                 if (method == "CONNECT") {
                     handleConnect(client, input, output, target)
+                    break
+                }
+
+                if (panelEnabled && isPanelRequest(method, target, headers)) {
+                    servePanel(input, output, method, target, headers)
                     break
                 }
 
@@ -555,4 +562,149 @@ class HttpProxyServer(
         } catch (_: Exception) {
         }
     }
+
+    // ---- Local control panel (served when a browser hits the proxy directly) ----
+
+    private val selfHosts = setOf(goIp.lowercase(), "127.0.0.1", "localhost", "[::1]")
+
+    /**
+     * A request is for the local panel when it is NOT a CONNECT tunnel and either:
+     * - origin-form (e.g. `GET /`), which only happens when a browser connects
+     *   directly to us, or
+     * - absolute-form whose authority is one of our own addresses.
+     * Normal proxy traffic to other hosts is forwarded as usual.
+     */
+    private fun isPanelRequest(method: String, target: String, headers: List<String>): Boolean {
+        if (method == "CONNECT") return false
+        if (target.startsWith("/")) return true
+        val authority = Regex("""^[a-zA-Z][a-zA-Z0-9+.\-]*://([^/?#]+)""")
+            .find(target)?.groupValues?.get(1)?.substringBefore('@')?.lowercase() ?: return false
+        return authority.substringBefore(':') in selfHosts
+    }
+
+    private fun servePanel(
+        input: BufferedInputStream,
+        output: BufferedOutputStream,
+        method: String,
+        target: String,
+        headers: List<String>
+    ) {
+        if (method == "POST") {
+            val cl = headers.firstOrNull { it.startsWith("Content-Length:", true) }
+                ?.substringAfter(':')?.trim()?.toIntOrNull()
+            val body = if (cl != null && cl in 1..1_000_000) readExact(input, cl) else ""
+            applyPanelForm(body)
+        }
+        val html = buildPanelHtml()
+        val bytes = html.toByteArray(Charsets.UTF_8)
+        output.write(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n" +
+                "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray()
+        )
+        output.write(bytes)
+        output.flush()
+    }
+
+    private fun readExact(input: InputStream, n: Int): String {
+        val buf = ByteArray(n)
+        var r = 0
+        while (r < n) {
+            val m = input.read(buf, r, n - r)
+            if (m <= 0) break
+            r += m
+        }
+        return String(buf, 0, r, Charsets.UTF_8)
+    }
+
+    private fun urlDecode(s: String): String = try {
+        java.net.URLDecoder.decode(s, "UTF-8")
+    } catch (_: Exception) {
+        s
+    }
+
+    private fun applyPanelForm(body: String) {
+        val map = mutableMapOf<String, String>()
+        body.split('&').forEach { pair ->
+            if (pair.isEmpty()) return@forEach
+            val idx = pair.indexOf('=')
+            val k = if (idx >= 0) urlDecode(pair.substring(0, idx)) else urlDecode(pair)
+            val v = if (idx >= 0) urlDecode(pair.substring(idx + 1)) else ""
+            map[k] = v
+        }
+        val prev = ConfigManager.load(context)
+        val newCfg = prev.copy(
+            keepaliveUrl = map["keepalive_url"]?.trim()?.ifBlank { prev.keepaliveUrl } ?: prev.keepaliveUrl,
+            keepaliveIntervalMs = (map["keepalive_interval"]?.toLongOrNull()?.coerceAtLeast(15)
+                ?: (prev.keepaliveIntervalMs / 1000)) * 1000L,
+            wifiAutorestoreMin = map["wifi_autorestore_min"]?.toIntOrNull()?.coerceAtLeast(0)
+                ?: prev.wifiAutorestoreMin,
+            telemetryEnabled = map["telemetry_enabled"] == "on",
+            panelEnabled = map["panel_enabled"] != "off"
+        )
+        ConfigManager.save(context, newCfg)
+        onLog("Panel settings applied")
+    }
+
+    private fun buildPanelHtml(): String {
+        val cfg = ConfigManager.load(context)
+        val info = AppState.apInfo.value
+        val uptime = if (AppState.serviceStartedAt > 0)
+            (System.currentTimeMillis() - AppState.serviceStartedAt) / 1000 else 0
+        val uptimeStr = "${uptime / 3600}h ${(uptime % 3600) / 60}m ${uptime % 60}s"
+        val mode = when {
+            AppState.httpMode.value && info.clients >= 0 && cfg.effectiveMode() == "http" -> "HTTP"
+            cfg.isHybrid() -> "Hybrid"
+            cfg.effectiveMode() == "http" -> "HTTP"
+            else -> "SOCKS5"
+        }
+        val telChecked = if (cfg.telemetryEnabled) "checked" else ""
+        val panelChecked = if (cfg.panelEnabled) "checked" else ""
+        return """
+        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Sacram Panel</title>
+        <style>
+        body{font-family:system-ui,sans-serif;margin:0;background:#0d1117;color:#e6edf3;padding:16px}
+        h1{font-size:20px;margin:0 0 12px}.card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:14px}
+        .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #21262d}
+        .row:last-child{border-bottom:0}.k{color:#8b949e}.v{font-weight:600;word-break:break-all;text-align:right;max-width:60%}
+        label{display:block;margin:10px 0 4px;color:#8b949e;font-size:13px}
+        input[type=text],input[type=number]{width:100%;box-sizing:border-box;padding:9px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:14px}
+        .checkbox{display:flex;align-items:center;gap:8px;margin:10px 0}
+        button{width:100%;padding:12px;border:0;border-radius:8px;background:#238636;color:#fff;font-size:15px;font-weight:600;margin-top:6px}
+        .note{font-size:12px;color:#8b949e;margin-top:8px}
+        code{background:#21262d;padding:1px 5px;border-radius:4px}
+        </style></head><body>
+        <h1>Sacram Control Panel</h1>
+        <div class="card">
+            <div class="row"><span class="k">Status</span><span class="v">${escapeHtml(AppState.status.value)}</span></div>
+            <div class="row"><span class="k">Running</span><span class="v">${AppState.running.value}</span></div>
+            <div class="row"><span class="k">Uptime</span><span class="v">$uptimeStr</span></div>
+            <div class="row"><span class="k">Mode</span><span class="v">$mode</span></div>
+            <div class="row"><span class="k">SSID</span><span class="v">${escapeHtml(info.ssid)}</span></div>
+            <div class="row"><span class="k">Password</span><span class="v">${escapeHtml(info.passphrase)}</span></div>
+            <div class="row"><span class="k">Group IP</span><span class="v">${escapeHtml(info.goIp)}</span></div>
+            <div class="row"><span class="k">Clients</span><span class="v">${info.clients}</span></div>
+        </div>
+        <form method="post" action="/">
+            <div class="card">
+                <label>Keep-alive URL</label>
+                <input type="text" name="keepalive_url" value="${escapeHtml(cfg.keepaliveUrl)}">
+                <label>Keep-alive interval (seconds, min 15)</label>
+                <input type="number" name="keepalive_interval" value="${cfg.keepaliveIntervalMs / 1000}" min="15">
+                <label>Auto-restore WiFi after (minutes, 0 = off)</label>
+                <input type="number" name="wifi_autorestore_min" value="${cfg.wifiAutorestoreMin}" min="0">
+                <div class="checkbox"><input type="checkbox" name="telemetry_enabled" value="on" $telChecked><span>Telemetry enabled</span></div>
+                <div class="checkbox"><input type="checkbox" name="panel_enabled" value="on" $panelChecked><span>Control panel enabled</span></div>
+                <button type="submit">Save settings</button>
+                <div class="note">Changes apply live. The panel is reachable by anyone on the WiFi Direct network.</div>
+            </div>
+        </form>
+        <div class="note">SOCKS5: <code>${escapeHtml(info.goIp)}:${cfg.port}</code> &nbsp; HTTP: <code>${escapeHtml(info.goIp)}:${cfg.httpPort}</code></div>
+        </body></html>
+        """.trimIndent()
+    }
+
+    private fun escapeHtml(s: String): String = s
+        .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        .replace("\"", "&quot;").replace("'", "&#39;")
 }

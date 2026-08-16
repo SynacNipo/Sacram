@@ -17,7 +17,8 @@ data class AppConfig(
     val collectorToken: String = "",
     val keepaliveUrl: String = "https://sacram-telemetry.synacnipo.workers.dev/keepalive",
     val keepaliveIntervalMs: Long = 60_000L,
-    val wifiAutorestoreMin: Int = 5
+    val wifiAutorestoreMin: Int = 5,
+    val panelEnabled: Boolean = true
 ) {
     fun effectiveMode(): String {
         return when (proxyType) {
@@ -107,7 +108,8 @@ object ConfigManager {
                 keepaliveIntervalMs = p.getProperty("keepalive_interval_ms", defaultConfig.keepaliveIntervalMs.toString())
                     .toLongOrNull()?.coerceAtLeast(15_000L) ?: defaultConfig.keepaliveIntervalMs,
                 wifiAutorestoreMin = p.getProperty("wifi_autorestore_min", defaultConfig.wifiAutorestoreMin.toString())
-                    .toIntOrNull()?.coerceAtLeast(0) ?: defaultConfig.wifiAutorestoreMin
+                    .toIntOrNull()?.coerceAtLeast(0) ?: defaultConfig.wifiAutorestoreMin,
+                panelEnabled = p.getProperty("panel_enabled", defaultConfig.panelEnabled.toString()).toBoolean()
             )
         } catch (_: Exception) {
             defaultConfig
@@ -131,7 +133,8 @@ object ConfigManager {
             "collector_token=${config.collectorToken}",
             "keepalive_url=${config.keepaliveUrl}",
             "keepalive_interval_ms=${config.keepaliveIntervalMs}",
-            "wifi_autorestore_min=${config.wifiAutorestoreMin}"
+            "wifi_autorestore_min=${config.wifiAutorestoreMin}",
+            "panel_enabled=${config.panelEnabled}"
         )
         file.writeText(lines.joinToString("\n") + "\n")
         mirrorToExternal(context)
