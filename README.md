@@ -18,13 +18,14 @@
 | Windows client   | Alpha         | `SacramConnect.bat` (sing-box TUN) launches; DNS/routing handled by sing-box TUN (verify end-to-end) |
 | HTTP (TCP) proxy | Working       | Plain HTTP + CONNECT tunnels, full-duplex                          |
 | SOCKS5 (TCP)     | Unverified    | Bidirectional pump reworked; not yet validated end-to-end         |
-| SOCKS5 UDP       | In progress   | UDP ASSOCIATE exists; actively being worked on                     |
+| SOCKS5 UDP       | Paused        | UDP ASSOCIATE exists; dev paused, not actively worked on           |
 
-Known open issues being worked on:
+Known open issues (UDP path paused):
 - TUN starts but upstream DNS resolution was failing (public DoH
   unreachable through the phone proxy); now resolved via DoH-through-phone
   in the sing-box config.
-- UDP/QUIC (`can't resolve ip`) failures need verification after the DNS fix.
+- UDP/QUIC (`can't resolve ip`) failures need verification after the DNS fix —
+  paused, not currently being actively addressed.
 - The auto-detected "phone" gateway may be wrong when the phone isn't the
   default route.
 
