@@ -15,6 +15,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
 import android.widget.Button
@@ -42,7 +43,13 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "SacramMain"
-        val PROXY_TYPE_LABELS = listOf("Auto (default mode)", "UDP / SOCKS5", "HTTP", "Hybrid (SOCKS5 + HTTP)")
+        val PROXY_TYPE_LABELS = listOf(
+            "Auto (default mode)",
+            "UDP / SOCKS5 [Experimental]",
+            "HTTP",
+            "Hybrid (SOCKS5 + HTTP) [Experimental]"
+        )
+        val EXPERIMENTAL_TYPES = setOf(1, 3)
     }
 
     private lateinit var tvStatus: TextView
@@ -204,18 +211,37 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupProxyTypeDropdown(selected: Int) {
-        val adapter = ArrayAdapter(
+        val adapter = object : ArrayAdapter<String>(
             this,
             android.R.layout.simple_dropdown_item_1line,
             PROXY_TYPE_LABELS
-        )
+        ) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val v = super.getView(position, convertView, parent)
+                val tv = v.findViewById<TextView>(android.R.id.text1)
+                tv.setTextColor(
+                    if (position in EXPERIMENTAL_TYPES) 0xFFC62828.toInt()
+                    else ContextCompat.getColor(this@MainActivity, R.color.text_primary)
+                )
+                return v
+            }
+        }
         etProxyType.setAdapter(adapter)
         etProxyType.setText(PROXY_TYPE_LABELS.getOrElse(selected) { PROXY_TYPE_LABELS[0] }, false)
+        applyProxyTypeColor(selected)
         etProxyType.setOnItemClickListener { _, _, position, _ ->
             etProxyType.setText(PROXY_TYPE_LABELS[position], false)
+            applyProxyTypeColor(position)
             updatePortVisibility(position)
             autosave()
         }
+    }
+
+    private fun applyProxyTypeColor(position: Int) {
+        etProxyType.setTextColor(
+            if (position in EXPERIMENTAL_TYPES) 0xFFC62828.toInt()
+            else ContextCompat.getColor(this, R.color.text_primary)
+        )
     }
 
     /**
