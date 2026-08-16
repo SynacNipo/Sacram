@@ -57,6 +57,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etKeepaliveUrl: EditText
     private lateinit var etKeepaliveInterval: EditText
     private lateinit var etWifiRestore: EditText
+    private lateinit var tilPort: com.google.android.material.textfield.TextInputLayout
+    private lateinit var tilHttpPort: com.google.android.material.textfield.TextInputLayout
 
     private val saveHandler = Handler(Looper.getMainLooper())
     private val autosaveRunnable = Runnable { autosave() }
@@ -98,7 +100,10 @@ class MainActivity : AppCompatActivity() {
         etKeepaliveUrl.setText(config.keepaliveUrl)
         etKeepaliveInterval.setText((config.keepaliveIntervalMs / 1000).toString())
         etWifiRestore.setText(config.wifiAutorestoreMin.toString())
+        tilPort = findViewById(R.id.tilPort)
+        tilHttpPort = findViewById(R.id.tilHttpPort)
         setupProxyTypeDropdown(config.proxyType)
+        updatePortVisibility(config.proxyType)
         findViewById<TextView>(R.id.tvConfigPath).text =
             "config.txt: ${ConfigManager.externalConfigFile(this).absolutePath}"
 
@@ -207,8 +212,25 @@ class MainActivity : AppCompatActivity() {
         etProxyType.setText(PROXY_TYPE_LABELS.getOrElse(selected) { PROXY_TYPE_LABELS[0] }, false)
         etProxyType.setOnItemClickListener { _, _, position, _ ->
             etProxyType.setText(PROXY_TYPE_LABELS[position], false)
+            updatePortVisibility(position)
             autosave()
         }
+    }
+
+    /**
+     * Show only the relevant port field(s) for the chosen proxy type so the
+     * form doesn't waste vertical space. Auto (0) and SOCKS5 (1) -> SOCKS5 port;
+     * HTTP (2) -> HTTP port; Hybrid (3) -> both side-by-side in the row.
+     * A single visible port expands to full width.
+     */
+    private fun updatePortVisibility(proxyType: Int) {
+        val showSocks = proxyType != 2
+        val showHttp = proxyType == 2 || proxyType == 3
+        tilPort.visibility = if (showSocks) View.VISIBLE else View.GONE
+        tilHttpPort.visibility = if (showHttp) View.VISIBLE else View.GONE
+        (tilPort.layoutParams as LinearLayout.LayoutParams).weight = if (showSocks && !showHttp) 2f else 1f
+        (tilHttpPort.layoutParams as LinearLayout.LayoutParams).weight = if (showHttp && !showSocks) 2f else 1f
+    }
     }
 
     private var eggTaps = 0

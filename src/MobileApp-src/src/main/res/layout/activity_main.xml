@@ -104,20 +104,6 @@
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilPort"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:hint="SOCKS5 Port">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etPort"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="number" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/tilProxyType"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -143,25 +129,50 @@
                 android:textColor="@color/text_secondary"
                 android:textSize="11sp" />
 
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilHttpPort"
+            <LinearLayout
+                android:id="@+id/portRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:hint="HTTP Port (TCP only, no UDP)">
+                android:orientation="horizontal"
+                android:weightSum="2">
 
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etHttpPort"
-                    android:layout_width="match_parent"
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilPort"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:inputType="number" />
-            </com.google.android.material.textfield.TextInputLayout>
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:hint="SOCKS5 Port">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etPort"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilHttpPort"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:hint="HTTP Port">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etHttpPort"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="HTTP mode helps when TUN is not needed - point the client at http://192.168.49.1:8282"
+                android:text="SOCKS5 port shows for SOCKS5/Hybrid; HTTP port shows for HTTP/Hybrid. Both sit side-by-side for Hybrid."
                 android:textSize="12sp"
                 android:textColor="@color/text_secondary"
                 android:textIsSelectable="true" />
