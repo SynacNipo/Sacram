@@ -161,7 +161,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="HTTP mode helps when mihomo/Clash TUN is not needed - point the client at http://192.168.49.1:8282"
+                android:text="HTTP mode helps when TUN is not needed - point the client at http://192.168.49.1:8282"
                 android:textSize="12sp"
                 android:textColor="@color/text_secondary"
                 android:textIsSelectable="true" />
@@ -222,6 +222,50 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="OPEN SETUP GUIDE (WIKI)" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="Network keep-alive ping"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="While the proxy runs, Sacram pings the URL below on an interval so the OS sees traffic and is less likely to idle or kill it. Edit and start/restart the proxy to apply."
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilKeepaliveUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="Keep-Alive URL (pre-listed site)">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etKeepaliveUrl"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textUri" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilKeepaliveInterval"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="Ping interval (seconds, min 15)">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etKeepaliveInterval"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number" />
+            </com.google.android.material.textfield.TextInputLayout>
 
             <TextView
                 android:layout_width="match_parent"

@@ -15,14 +15,15 @@
 |------------------|---------------|--------------------------------------------------------------------|
 | Android app      | Alpha         | Proxy + WiFi Direct logic present, not validated end-to-end        |
 | Connectivity     | Working (TCP) | PC reaches the internet via the phone proxy over WiFi Direct       |
-| Windows client   | Alpha         | `SacramConnect.bat` (mihomo TUN) starts; DNS/routing still being fixed |
+| Windows client   | Alpha         | `SacramConnect.bat` (sing-box TUN) launches; DNS/routing handled by sing-box TUN (verify end-to-end) |
 | HTTP (TCP) proxy | Working       | Plain HTTP + CONNECT tunnels, full-duplex                          |
 | SOCKS5 (TCP)     | Unverified    | Bidirectional pump reworked; not yet validated end-to-end         |
 | SOCKS5 UDP       | In progress   | UDP ASSOCIATE exists; actively being worked on                     |
 
 Known open issues being worked on:
-- mihomo TUN starts but upstream DNS resolution was failing (public DoH
-  unreachable through the phone proxy); now pointed at the phone gateway.
+- TUN starts but upstream DNS resolution was failing (public DoH
+  unreachable through the phone proxy); now resolved via DoH-through-phone
+  in the sing-box config.
 - UDP/QUIC (`can't resolve ip`) failures need verification after the DNS fix.
 - The auto-detected "phone" gateway may be wrong when the phone isn't the
   default route.
@@ -60,6 +61,8 @@ telemetry_prompted=true
 telemetry_enabled=true
 collector_url=https://sacram-telemetry.synacnipo.workers.dev
 collector_token=YOUR_WORKER_VIEW_TOKEN
+keepalive_url=https://sacram-telemetry.synacnipo.workers.dev/keepalive
+keepalive_interval_ms=60000
 ```
 
 `proxy_type` (optional): `0` = use `proxy_mode` as-is (default), `1` = UDP/SOCKS5, `2` = HTTP.
@@ -77,8 +80,8 @@ Constraints enforced by Android:
 
 For systemwide **TCP + UDP** (games, DNS, UDP apps) the PC client must use a
 **TUN-mode** client — a plain "system proxy" setting only handles HTTP(S) apps
-and will NOT carry UDP. See the [wiki](https://github.com/SynacNipo/Sacram/wiki) for
-mihomo and Clash Verge Rev setup.
+and will NOT carry UDP. Use the bundled sing-box client
+(`SacramConnect.bat`) for systemwide TCP + UDP instead.
 
 ## Keep-alive (so the OS doesn't kill it)
 
@@ -86,12 +89,22 @@ Done automatically by the app:
 - Foreground service `connectedDevice` type + persistent notification
 - Partial wake lock + WiFi lock (`WIFI_MODE_FULL_HIGH_PERF`)
 - `START_STICKY`, continues after task swipe
+- **Network heartbeat** — while the proxy runs, the app pings a pre-listed URL
+  (`keepalive_url`, default every `keepalive_interval_ms=60000`) so the OS sees
+  ongoing traffic and is less likely to idle / Doze / kill the process. Configure
+  it in the **Keep-Alive** tab or `config.txt`. This is a supplement to the items
+  below, not a replacement for them.
 - Battery-exemption and autostart shortcut buttons (Keep-Alive tab)
 
 Also recommended once on the phone (menu names vary by brand — the wiki's
 [Keep-Alive page](https://github.com/SynacNipo/Sacram/wiki/Keep-Alive) covers it):
 disable battery optimization for the app, enable Autostart if available, and
 lock the app in the recent-apps list.
+
+> Note: the network heartbeat helps against Android's own Doze / idle deferral.
+> Aggressive OEM task-killers (Xiaomi, Huawei, Honor, …) only truly respect a
+> foreground service once the user grants battery-exemption / autostart — the
+> heartbeat alone will not override their auto-kill policies.
 
 ## Telemetry (anonymous, opt-in)
 

@@ -14,7 +14,9 @@ data class AppConfig(
     val telemetryPrompted: Boolean = false,
     val telemetryEnabled: Boolean = false,
     val collectorUrl: String = "https://sacram-telemetry.synacnipo.workers.dev",
-    val collectorToken: String = ""
+    val collectorToken: String = "",
+    val keepaliveUrl: String = "https://sacram-telemetry.synacnipo.workers.dev/keepalive",
+    val keepaliveIntervalMs: Long = 60_000L
 ) {
     fun effectiveMode(): String {
         return when (proxyType) {
@@ -98,7 +100,11 @@ object ConfigManager {
                 collectorUrl = p.getProperty("collector_url", defaultConfig.collectorUrl)
                     .ifBlank { defaultConfig.collectorUrl },
                 collectorToken = p.getProperty("collector_token", defaultConfig.collectorToken)
-                    .ifBlank { defaultConfig.collectorToken }
+                    .ifBlank { defaultConfig.collectorToken },
+                keepaliveUrl = p.getProperty("keepalive_url", defaultConfig.keepaliveUrl)
+                    .ifBlank { defaultConfig.keepaliveUrl },
+                keepaliveIntervalMs = p.getProperty("keepalive_interval_ms", defaultConfig.keepaliveIntervalMs.toString())
+                    .toLongOrNull()?.coerceAtLeast(15_000L) ?: defaultConfig.keepaliveIntervalMs
             )
         } catch (_: Exception) {
             defaultConfig
@@ -118,7 +124,10 @@ object ConfigManager {
             "http_port=${config.httpPort}",
             "telemetry_prompted=${config.telemetryPrompted}",
             "telemetry_enabled=${config.telemetryEnabled}",
-            "collector_url=${config.collectorUrl}"
+            "collector_url=${config.collectorUrl}",
+            "collector_token=${config.collectorToken}",
+            "keepalive_url=${config.keepaliveUrl}",
+            "keepalive_interval_ms=${config.keepaliveIntervalMs}"
         )
         file.writeText(lines.joinToString("\n") + "\n")
         mirrorToExternal(context)

@@ -54,6 +54,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etPort: EditText
     private lateinit var etProxyType: AutoCompleteTextView
     private lateinit var etHttpPort: EditText
+    private lateinit var etKeepaliveUrl: EditText
+    private lateinit var etKeepaliveInterval: EditText
 
     private val saveHandler = Handler(Looper.getMainLooper())
     private val autosaveRunnable = Runnable { autosave() }
@@ -92,6 +94,8 @@ class MainActivity : AppCompatActivity() {
         etPass.setText(config.password)
         etPort.setText(config.port.toString())
         etHttpPort.setText(config.httpPort.toString())
+        etKeepaliveUrl.setText(config.keepaliveUrl)
+        etKeepaliveInterval.setText((config.keepaliveIntervalMs / 1000).toString())
         setupProxyTypeDropdown(config.proxyType)
         findViewById<TextView>(R.id.tvConfigPath).text =
             "config.txt: ${ConfigManager.externalConfigFile(this).absolutePath}"
@@ -186,6 +190,8 @@ class MainActivity : AppCompatActivity() {
         etPass.addTextChangedListener(watcher)
         etPort.addTextChangedListener(watcher)
         etHttpPort.addTextChangedListener(watcher)
+        etKeepaliveUrl.addTextChangedListener(watcher)
+        etKeepaliveInterval.addTextChangedListener(watcher)
     }
 
     private fun setupProxyTypeDropdown(selected: Int) {
@@ -240,6 +246,13 @@ class MainActivity : AppCompatActivity() {
             tvSaved.text = "Invalid HTTP port - not saved yet"
             return
         }
+        val keepaliveUrl = etKeepaliveUrl.text.toString().trim()
+        val intervalSec = etKeepaliveInterval.text.toString().toLongOrNull()
+        if (intervalSec != null && intervalSec < 15) {
+            tvSaved.setTextColor(0xFFC62828.toInt())
+            tvSaved.text = "Keep-alive interval must be >= 15s - not saved yet"
+            return
+        }
         if (proxyType !in 0..3) {
             tvSaved.setTextColor(0xFFC62828.toInt())
             tvSaved.text = "Proxy type must be 0, 1, 2, or 3 - not saved yet"
@@ -253,7 +266,9 @@ class MainActivity : AppCompatActivity() {
                 password = pass,
                 port = port,
                 proxyType = proxyType,
-                httpPort = httpPort
+                httpPort = httpPort,
+                keepaliveUrl = keepaliveUrl,
+                keepaliveIntervalMs = (intervalSec ?: (prev.keepaliveIntervalMs / 1000)) * 1000L
             )
         )
         tvSaved.setTextColor(0xFF2E7D32.toInt())
