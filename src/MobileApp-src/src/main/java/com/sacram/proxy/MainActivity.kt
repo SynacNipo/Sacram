@@ -1,7 +1,6 @@
 package com.sacram.proxy
 
 import android.Manifest
-import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -235,7 +234,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var eggTaps = 0
-    private var approvalDialog: AlertDialog? = null
+    private var approvalDialog: androidx.appcompat.app.AlertDialog? = null
 
 
     private fun setupEasterEgg() {
