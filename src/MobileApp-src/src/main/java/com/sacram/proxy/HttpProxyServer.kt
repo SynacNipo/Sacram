@@ -76,6 +76,7 @@ class HttpProxyServer(
                 cellularNetwork = network
                 lastGoodCellular = network
                 clearPool()
+                clearDns()
                 onLog("Bound to cellular network: $network")
             }
             override fun onLost(network: Network) {
@@ -88,11 +89,13 @@ class HttpProxyServer(
                     cellularNetwork = alt
                     lastGoodCellular = alt
                     clearPool()
+                    clearDns()
                     onLog("Cellular network switched: $network -> $alt")
                 } else {
-                    // No replacement yet - keep cellularNetwork as-is (the lost
-                    // object may still route). Crucially we do NOT clear the pool
-                    // and we do NOT fall back to the WiFi-Direct interface.
+                    // No replacement yet - drop any sockets bound to the now-dead
+                    // network so we don't keep tunnelling through a stale binding.
+                    clearPool()
+                    clearDns()
                     onLog("WARNING: cellular network $network lost; keeping it for egress until a replacement is found")
                 }
             }
@@ -322,17 +325,42 @@ class HttpProxyServer(
                 if (entry != null) reused = entry.first
             }
         }
-        if (reused != null && !reused.isClosed) {
+        if (reused != null && !reused.isClosed && reused.isConnected) {
             return reused
         }
         val net = NetworkUtils.pickCellular(cm, cellularNetwork) ?: lastGoodCellular
         val addr = resolve(host, net)
         val up = Socket()
-        net?.bindSocket(up)
-        up.soTimeout = readTimeoutMs
-        up.tcpNoDelay = true
-        up.connect(InetSocketAddress(addr, port), connectTimeoutMs)
-        return up
+        try {
+            net?.bindSocket(up)
+            up.soTimeout = readTimeoutMs
+            up.tcpNoDelay = true
+            up.connect(InetSocketAddress(addr, port), connectTimeoutMs)
+            return up
+        } catch (e: Exception) {
+            runCatching { up.close() }
+            // The cached cellular network may have gone stale (very common while
+            // the phone is the WiFi-Direct Group Owner for a long session). Re-pick
+            // a live cellular network once instead of failing on a dead binding.
+            val fresh = cm.allNetworks.firstOrNull { isValidCellular(it) }
+            if (fresh != null && fresh != net) {
+                val up2 = Socket()
+                try {
+                    fresh.bindSocket(up2)
+                    up2.soTimeout = readTimeoutMs
+                    up2.tcpNoDelay = true
+                    up2.connect(InetSocketAddress(resolve(host, fresh), port), connectTimeoutMs)
+                    cellularNetwork = fresh
+                    lastGoodCellular = fresh
+                    clearPool()
+                    clearDns()
+                    return up2
+                } catch (_: Exception) {
+                    runCatching { up2.close() }
+                }
+            }
+            throw e
+        }
     }
 
     private fun releaseUpstream(host: String, port: Int, sock: Socket) {
@@ -357,6 +385,10 @@ class HttpProxyServer(
                 list.clear()
             }
         }
+    }
+
+    private fun clearDns() {
+        dnsCache.clear()
     }
 
     private fun writeResponseHeaders(
