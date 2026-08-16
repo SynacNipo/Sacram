@@ -102,6 +102,12 @@ it on networks you trust. Disable it with `panel_enabled=false` in `config.txt`
 or via the panel's own checkbox. It does not affect normal proxy/CONNECT traffic
 — only requests aimed at the proxy's own address.
 
+**Owner approval:** any settings change submitted from the panel does NOT apply
+immediately. Instead the **Sacram app shows an in-app Approve / Deny prompt**; the
+change is applied only if the owner approves within 10 seconds, otherwise the
+request is silently dropped. This stops a device on the network from reconfiguring
+the proxy (e.g. changing the hotspot password) without the owner's consent.
+
 ## Keep-alive (so the OS doesn't kill it)
 
 Done automatically by the app:

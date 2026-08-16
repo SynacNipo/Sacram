@@ -594,16 +594,33 @@ class HttpProxyServer(
                 ?.substringAfter(':')?.trim()?.toIntOrNull()
             val body = if (cl != null && cl in 1..1_000_000) readExact(input, cl) else ""
             applyPanelForm(body)
+            writePanelPage(output, pendingPageHtml())
+            return
         }
-        val html = buildPanelHtml()
+        writePanelPage(output, buildPanelHtml())
+    }
+
+    private fun writePanelPage(output: BufferedOutputStream, html: String) {
         val bytes = html.toByteArray(Charsets.UTF_8)
-        output.write(
-            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n" +
-                "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray()
-        )
+        val header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n" +
+            "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+        output.write(header.toByteArray(Charsets.UTF_8))
         output.write(bytes)
         output.flush()
     }
+
+    private fun pendingPageHtml(): String = """
+        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Sacram Panel</title>
+        <style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:24px}
+        a{color:#58a6ff}</style></head><body>
+        <h1>Change requested</h1>
+        <p>The requested settings change is waiting for the phone owner to approve it <b>inside the Sacram app</b> (10 second window).</p>
+        <p>If the owner ignores or denies it, <b>nothing changes</b>.</p>
+        <p><a href="/">Back to panel</a></p>
+        </body></html>
+        """.trimIndent()
+
 
     private fun readExact(input: InputStream, n: Int): String {
         val buf = ByteArray(n)
@@ -631,18 +648,8 @@ class HttpProxyServer(
             val v = if (idx >= 0) urlDecode(pair.substring(idx + 1)) else ""
             map[k] = v
         }
-        val prev = ConfigManager.load(context)
-        val newCfg = prev.copy(
-            keepaliveUrl = map["keepalive_url"]?.trim()?.ifBlank { prev.keepaliveUrl } ?: prev.keepaliveUrl,
-            keepaliveIntervalMs = (map["keepalive_interval"]?.toLongOrNull()?.coerceAtLeast(15)
-                ?: (prev.keepaliveIntervalMs / 1000)) * 1000L,
-            wifiAutorestoreMin = map["wifi_autorestore_min"]?.toIntOrNull()?.coerceAtLeast(0)
-                ?: prev.wifiAutorestoreMin,
-            telemetryEnabled = map["telemetry_enabled"] == "on",
-            panelEnabled = map["panel_enabled"] != "off"
-        )
-        ConfigManager.save(context, newCfg)
-        onLog("Panel settings applied")
+        PanelApproval.submit(map)
+        onLog("Panel change requested - awaiting in-app approval")
     }
 
     private fun buildPanelHtml(): String {

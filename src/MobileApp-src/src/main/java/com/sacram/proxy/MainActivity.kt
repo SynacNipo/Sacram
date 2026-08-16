@@ -1,6 +1,7 @@
 package com.sacram.proxy
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -110,6 +111,7 @@ class MainActivity : AppCompatActivity() {
         setupTabs()
         setupAutosave()
         setupEasterEgg()
+        observePanelApproval()
 
         // Notify if no valid password is set, but don't block anything
         if (config.password.length !in 8..63) {
@@ -231,9 +233,10 @@ class MainActivity : AppCompatActivity() {
         (tilPort.layoutParams as LinearLayout.LayoutParams).weight = if (showSocks && !showHttp) 2f else 1f
         (tilHttpPort.layoutParams as LinearLayout.LayoutParams).weight = if (showHttp && !showSocks) 2f else 1f
     }
-    }
 
     private var eggTaps = 0
+    private var approvalDialog: AlertDialog? = null
+
 
     private fun setupEasterEgg() {
         tvStatus.setOnClickListener {
@@ -244,6 +247,53 @@ class MainActivity : AppCompatActivity() {
                     "\uD83D\uDEF0 You found the Sacram easter egg - stay proxy, my friend.",
                     Toast.LENGTH_LONG
                 ).show()
+            }
+        }
+    }
+
+    /**
+     * Show an in-app approve/deny prompt whenever a device on the network submits
+     * a panel change. The request is dropped if the owner ignores it for 10s.
+     */
+    private fun observePanelApproval() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                PanelApproval.pending.collect { req ->
+                    if (req == null) {
+                        approvalDialog?.dismiss()
+                        approvalDialog = null
+                        return@collect
+                    }
+                    showApprovalDialog(req)
+                }
+            }
+        }
+    }
+
+    private fun showApprovalDialog(req: PanelApproval.Request) {
+        approvalDialog?.takeIf { it.isShowing }?.dismiss()
+        val summary = req.fields.entries.joinToString("\n") { "${it.key} = ${it.value}" }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Approve panel change?")
+            .setMessage(
+                "A device on the WiFi requested these setting changes:\n\n$summary\n\n" +
+                    "Approve within 10 seconds, otherwise the request is dropped."
+            )
+            .setCancelable(false)
+            .setPositiveButton("Approve") { _, _ -> PanelApproval.approve(this) }
+            .setNegativeButton("Deny") { _, _ -> PanelApproval.deny() }
+            .create()
+        dialog.setOnDismissListener {
+            if (PanelApproval.current()?.id == req.id) PanelApproval.deny()
+            if (approvalDialog === dialog) approvalDialog = null
+        }
+        approvalDialog = dialog
+        dialog.show()
+        lifecycleScope.launch {
+            delay(PanelApproval.APPROVE_WINDOW_MS)
+            if (PanelApproval.current()?.id == req.id) {
+                PanelApproval.deny()
+                if (dialog.isShowing) dialog.dismiss()
             }
         }
     }
