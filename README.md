@@ -64,6 +64,7 @@ collector_url=https://sacram-telemetry.synacnipo.workers.dev
 collector_token=YOUR_WORKER_VIEW_TOKEN
 keepalive_url=https://sacram-telemetry.synacnipo.workers.dev/keepalive
 keepalive_interval_ms=60000
+wifi_autorestore_min=5
 ```
 
 `proxy_type` (optional): `0` = use `proxy_mode` as-is (default), `1` = UDP/SOCKS5, `2` = HTTP.
@@ -95,6 +96,10 @@ Done automatically by the app:
   ongoing traffic and is less likely to idle / Doze / kill the process. Configure
   it in the **Keep-Alive** tab or `config.txt`. This is a supplement to the items
   below, not a replacement for them.
+- **WiFi radio auto-restore** — if the WiFi radio gets turned off while the proxy
+  is meant to run, the app waits `wifi_autorestore_min` (default `5`) minutes and
+  then re-enables WiFi and rebuilds the hotspot. Set `0` to disable. It does **not**
+  distinguish who turned WiFi off — stopping the proxy also stops auto-restore.
 - Battery-exemption and autostart shortcut buttons (Keep-Alive tab)
 
 Also recommended once on the phone (menu names vary by brand — the wiki's

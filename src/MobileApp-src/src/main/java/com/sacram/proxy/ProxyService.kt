@@ -74,6 +74,7 @@ class ProxyService : Service() {
     private var fileObserver: FileObserver? = null
     private var restartJob: Job? = null
     private var keepAliveJob: Job? = null
+    private var wifiRestoreJob: Job? = null
     private var startedAt: Long = 0L
 
     private fun uptimeSeconds(): String =
@@ -107,6 +108,7 @@ class ProxyService : Service() {
             ProxyState.setShouldRun(this, true)
             scheduleWatchdog(this)
             keepAliveJob = KeepAlive.launch(scope, this)
+            wifiRestoreJob = WifiRestore.launch(scope, this) { restartProxy() }
             scope.launch { runPipeline() }
         }
         return START_STICKY
@@ -320,6 +322,7 @@ class ProxyService : Service() {
         Telemetry.send(this, "proxy_stopped", mapOf("uptime" to uptimeSeconds()) + Telemetry.batteryInfo(this))
         restartJob?.cancel()
         keepAliveJob?.cancel()
+        wifiRestoreJob?.cancel()
         runCatching { fileObserver?.stopWatching() }
         runCatching { socks?.stop() }
         runCatching { http?.stop() }
