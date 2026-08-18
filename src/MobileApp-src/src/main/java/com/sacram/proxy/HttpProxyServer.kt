@@ -63,7 +63,7 @@ class HttpProxyServer(
     private fun pickNet(): Network? {
         val now = System.currentTimeMillis()
         val cached = cachedNet
-        if (cached != null && now - cachedNetTime < 3000 && isValidCellular(cached)) {
+        if (cached != null && now - cachedNetTime < 8000 && isValidCellular(cached)) {
             return cached
         }
         val n = NetworkUtils.pickCellular(cm, cellularNetwork) ?: lastGoodCellular ?: cached
@@ -84,6 +84,15 @@ class HttpProxyServer(
     private val poolIdleMs = 60_000L
     private val connectTimeoutMs = 10_000
     private val readTimeoutMs = 20_000
+    // Idle timeout for CONNECT tunnels. Per-tunnel and deliberately longer than
+    // readTimeoutMs: a stalled upstream (server->client direction) with no
+    // soTimeout would block the pumping coroutine forever, leaking the slot.
+    // Multiple streams over cellular have naturally longer buffer-starved gaps,
+    // so 100s idle (not 20s) keeps live-but-quiet tunnels alive. Triggers a
+    // SocketTimeoutException on read, which pump() treats as EOF and closes.
+    private val tunnelIdleTimeoutMs = 100_000
+    // Live count of open CONNECT tunnels, surfaced via AppState for the panel.
+    private val tunnelCount = AtomicInteger(0)
 
     private fun bindToCellular() {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -485,6 +494,8 @@ class HttpProxyServer(
         val hostPort = target.split(":")
         val host = hostPort[0]
         val port = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
+        tunnelCount.incrementAndGet()
+        AppState.tcpTunnels.value = tunnelCount.get()
         try {
             val net = pickNet()
             val resolved = resolve(host, net)
@@ -492,6 +503,7 @@ class HttpProxyServer(
             net?.bindSocket(up)
             up.connect(InetSocketAddress(resolved, port), connectTimeoutMs)
             up.tcpNoDelay = true
+            up.soTimeout = tunnelIdleTimeoutMs
             upstream = up
             output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray())
             output.flush()
@@ -512,6 +524,8 @@ class HttpProxyServer(
             writeSimpleResponse(output, 502, "Bad Gateway - ${e.message}")
         } finally {
             runCatching { upstream?.close() }
+            val left = tunnelCount.decrementAndGet()
+            AppState.tcpTunnels.value = if (left < 0) 0 else left
         }
     }
 
@@ -747,6 +761,7 @@ class HttpProxyServer(
             <div class="row"><span class="k">Password</span><span class="v">${escapeHtml(info.passphrase)}</span></div>
             <div class="row"><span class="k">Group IP</span><span class="v">${escapeHtml(info.goIp)}</span></div>
             <div class="row"><span class="k">Clients</span><span class="v">${info.clients}</span></div>
+            <div class="row"><span class="k">TCP tunnels open</span><span class="v">${AppState.tcpTunnels.value}</span></div>
         </div>
         <form method="post" action="/">
             <div class="card">

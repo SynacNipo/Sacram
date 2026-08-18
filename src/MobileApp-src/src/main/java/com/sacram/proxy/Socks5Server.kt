@@ -26,6 +26,7 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * SOCKS5 server (RFC 1928) with TCP CONNECT and UDP ASSOCIATE.
@@ -48,6 +49,12 @@ class Socks5Server(
     private var netCallback: ConnectivityManager.NetworkCallback? = null
 
     private val maxUdpSessions = 1024
+
+    // Idle timeout for CONNECT tunnels. Longer than any per-request read timeout:
+    // a stalled upstream with no soTimeout blocks its pump coroutine forever.
+    private val tunnelIdleTimeoutMs = 100_000
+    // Live count of open TCP CONNECT tunnels, surfaced via AppState.
+    private val tunnelCount = AtomicInteger(0)
 
     private val dnsCache = ConcurrentHashMap<String, Pair<InetAddress, Long>>()
     private val dnsTtlMs = 60_000L
@@ -223,7 +230,7 @@ class Socks5Server(
     private fun pickNet(): Network? {
         val now = System.currentTimeMillis()
         val cached = cachedNet
-        if (cached != null && now - cachedNetTime < 3000 && isValidCellular(cached)) {
+        if (cached != null && now - cachedNetTime < 8000 && isValidCellular(cached)) {
             return cached
         }
         val n = NetworkUtils.pickCellular(cm, cellularNetwork) ?: cached
@@ -247,6 +254,8 @@ class Socks5Server(
         targetPort: Int
     ) {
         var upstream: Socket? = null
+        tunnelCount.incrementAndGet()
+        AppState.tcpTunnels.value = tunnelCount.get()
         try {
             val net = pickNet()
             val resolved = withContext(Dispatchers.IO) { resolve(target, net) }
@@ -254,6 +263,7 @@ class Socks5Server(
             net?.bindSocket(up)
             up.connect(InetSocketAddress(resolved, targetPort), 15000)
             up.tcpNoDelay = true
+            up.soTimeout = tunnelIdleTimeoutMs
             upstream = up
             replySuccess(output)
             onLog("TCP $target:$targetPort")
@@ -270,6 +280,8 @@ class Socks5Server(
         } finally {
             runCatching { client.close() }
             runCatching { upstream?.close() }
+            val left = tunnelCount.decrementAndGet()
+            AppState.tcpTunnels.value = if (left < 0) 0 else left
         }
     }
 
