@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.DatagramPacket
@@ -215,8 +216,12 @@ class Socks5Server(
         val now = System.currentTimeMillis()
         val cached = dnsCache[host]
         if (cached != null && cached.second > now) return cached.first
-        val addr = net?.getAllByName(host)?.firstOrNull()
-            ?: InetAddress.getByName(host)
+        // Resolve ONLY on the egress network the socket will be bound to. The
+        // default resolver would query the WiFi-Direct interface (no DNS/internet)
+        // when the phone is the Group Owner, producing an unreachable address.
+        val addrs = net?.getAllByName(host)
+        val addr = addrs?.firstOrNull()
+            ?: throw IOException("DNS resolution failed for $host on egress network $net")
         dnsCache[host] = addr to (now + dnsTtlMs)
         return addr
     }

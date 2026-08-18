@@ -22,12 +22,17 @@ object NetworkUtils {
 
     fun pickCellular(cm: ConnectivityManager, preferred: Network?): Network? {
         if (isValidCellular(cm, preferred)) return preferred
-        for (n in runCatching { cm.allNetworks }.getOrNull().orEmpty()) {
+        val nets = runCatching { cm.allNetworks }.getOrNull().orEmpty()
+        for (n in nets) {
             if (isValidCellular(cm, n)) return n
         }
-        // Do NOT fall back to the active network: while the phone is a WiFi-Direct
-        // Group Owner the active network is the P2P interface, which has no
-        // internet. Returning it would silently route egress to a dead path.
+        // Fallback: any network that actually has internet (e.g. WiFi, or a
+        // carrier/VPN path), not just cellular. The WiFi-Direct P2P interface
+        // lacks NET_CAPABILITY_INTERNET, so it is never selected here - we still
+        // never silently route egress to the dead P2P path.
+        for (n in nets) {
+            if (isValidEgress(cm, n)) return n
+        }
         return null
     }
 
@@ -36,5 +41,11 @@ object NetworkUtils {
         val caps = runCatching { cm.getNetworkCapabilities(n) }.getOrNull() ?: return false
         return caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    fun isValidEgress(cm: ConnectivityManager, n: Network?): Boolean {
+        if (n == null) return false
+        val caps = runCatching { cm.getNetworkCapabilities(n) }.getOrNull() ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 }

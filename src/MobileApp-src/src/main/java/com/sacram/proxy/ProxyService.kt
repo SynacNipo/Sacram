@@ -262,9 +262,15 @@ class ProxyService : Service() {
                     if (g == null) {
                         // Android silently tears down the P2P group on inactivity
                         // (no connected client / no traffic) even though the wifi
-                        // radio stays on. Recreate it so the AP just stays alive
-                        // instead of dropping, without restarting the proxy servers.
-                        if (!groupRecreateGuard && started.get()) {
+                        // radio stays on. Recreating it rebuilds the underlying
+                        // network interface, which kills any TCP socket a client
+                        // (e.g. a Windows box with the HTTP proxy set) has open to
+                        // us - in HTTP mode that means every in-flight request dies
+                        // at once, which is worse than just leaving the group down
+                        // and letting the client's own connection retry logic redial.
+                        // Only auto-recreate for socks5/hybrid, where the same tradeoff
+                        // was already accepted.
+                        if (!httpMode && !groupRecreateGuard && started.get()) {
                             groupRecreateGuard = true
                             Log.w(TAG, "WiFi Direct group lost (inactivity) - recreating to keep AP alive")
                             Telemetry.send(this, "p2p_group_recreated", mapOf("reason" to "inactivity_drop"))

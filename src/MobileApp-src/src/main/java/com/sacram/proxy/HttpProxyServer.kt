@@ -381,8 +381,13 @@ class HttpProxyServer(
         // Resolve on the same network the upstream socket is bound to. Using the
         // default resolver would query the WiFi Direct interface (no DNS/internet)
         // when the phone is the group owner, so every request would fail to resolve.
-        val addr = net?.getAllByName(host)?.firstOrNull()
-            ?: InetAddress.getByName(host)
+        // Resolve ONLY on the egress network we will bind the socket to. Falling
+        // back to the default resolver would query the WiFi-Direct interface
+        // (no DNS/internet) when the phone is the Group Owner, producing an
+        // address that is unreachable from the bound cellular socket.
+        val addrs = net?.getAllByName(host)
+        val addr = addrs?.firstOrNull()
+            ?: throw IOException("DNS resolution failed for $host on egress network $net")
         dnsCache[host] = addr to (now + dnsTtlMs)
         return addr
     }
@@ -413,10 +418,12 @@ class HttpProxyServer(
             return up
         } catch (e: Exception) {
             runCatching { up.close() }
+            onLog("HTTP upstream connect failed: $host:$port -> $addr via $net : ${e.message}")
             // The cached cellular network may have gone stale (very common while
             // the phone is the WiFi-Direct Group Owner for a long session). Re-pick
-            // a live cellular network once instead of failing on a dead binding.
+            // a live egress network once instead of failing on a dead binding.
             val fresh = cm.allNetworks.firstOrNull { isValidCellular(it) }
+                ?: cm.allNetworks.firstOrNull { NetworkUtils.isValidEgress(cm, it) }
             if (fresh != null && fresh != net) {
                 val up2 = Socket()
                 try {
@@ -429,8 +436,9 @@ class HttpProxyServer(
                     clearPool()
                     clearDns()
                     return up2
-                } catch (_: Exception) {
+                } catch (e2: Exception) {
                     runCatching { up2.close() }
+                    onLog("HTTP upstream retry failed via $fresh: ${e2.message}")
                 }
             }
             throw e
