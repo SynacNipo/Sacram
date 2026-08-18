@@ -384,6 +384,9 @@ class Socks5Server(
     ) {
         try {
             val buf = ByteArray(65535)
+            val header = ByteArray(10)
+            header[3] = 0x01 // IPv4
+            val response = ByteArray(65535 + 10)
             while (running.get()) {
                 val pkt = DatagramPacket(buf, buf.size)
                 try {
@@ -397,18 +400,17 @@ class Socks5Server(
                 session.lastActivity = System.currentTimeMillis()
                 val src = pkt.address
                 val srcPort = pkt.port
-                val data = buf.copyOf(pkt.length)
-                val header = ByteArray(10)
-                header[3] = 0x01 // IPv4
+                val dataLen = pkt.length
                 val ipBytes = src.address
                 if (ipBytes.size != 4) continue
                 System.arraycopy(ipBytes, 0, header, 4, 4)
                 header[8] = ((srcPort shr 8) and 0xff).toByte()
                 header[9] = (srcPort and 0xff).toByte()
-                val response = ByteArray(header.size + data.size)
-                System.arraycopy(header, 0, response, 0, header.size)
-                System.arraycopy(data, 0, response, header.size, data.size)
-                relaySocket.send(DatagramPacket(response, response.size, clientAddr, clientPort))
+                val total = 10 + dataLen
+                if (total > response.size) continue
+                System.arraycopy(header, 0, response, 0, 10)
+                System.arraycopy(buf, 0, response, 10, dataLen)
+                relaySocket.send(DatagramPacket(response, total, clientAddr, clientPort))
             }
         } finally {
             runCatching { session.socket.close() }
@@ -451,7 +453,7 @@ class Socks5Server(
     }
 
     private suspend fun pump(src: InputStream, dst: OutputStream) {
-        val buf = ByteArray(65536)
+        val buf = PUMP_BUF.get()
         try {
             while (running.get()) {
                 val n = src.read(buf)
@@ -463,5 +465,11 @@ class Socks5Server(
             }
         } catch (_: Exception) {
         }
+    }
+
+    companion object {
+        // Reused across pump() calls on the same worker thread so concurrent
+        // tunnels don't each allocate a fresh 64KB buffer (GC churn under load).
+        private val PUMP_BUF = ThreadLocal.withInitial { ByteArray(65536) }
     }
 }

@@ -13,9 +13,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
-import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -181,26 +179,26 @@ class HttpProxyServer(
     }
 
     private suspend fun handleClient(client: Socket) {
-        val input = BufferedInputStream(client.getInputStream())
+        val reader = StreamReader(client.getInputStream())
         val output = BufferedOutputStream(client.getOutputStream())
         try {
             client.soTimeout = 300000
             while (running.get()) {
-                val requestLine = readLine(input) ?: break
+                val requestLine = readLine(reader) ?: break
                 if (requestLine.isEmpty()) continue
                 val parts = requestLine.split(" ")
                 if (parts.size < 3) break
                 val method = parts[0].uppercase(Locale.US)
                 val target = parts[1]
-                val headers = readHeaders(input) ?: break
+                val headers = readHeaders(reader) ?: break
 
                 if (method == "CONNECT") {
-                    handleConnect(client, input, output, target)
+                    handleConnect(client, reader, output, target)
                     break
                 }
 
                 if (panelEnabled && isPanelRequest(method, target, headers)) {
-                    servePanel(input, output, method, target, headers)
+                    servePanel(reader, output, method, target, headers)
                     break
                 }
 
@@ -210,7 +208,7 @@ class HttpProxyServer(
                     break
                 }
                 val keepAlive = headers.any { it.startsWith("Connection:", true) && it.contains("keep-alive", true) }
-                forwardPlain(input, output, method, host, port, path, headers)
+                forwardPlain(reader, output, method, host, port, path, headers)
                 if (!keepAlive) break
             }
         } catch (_: Exception) {
@@ -220,7 +218,7 @@ class HttpProxyServer(
     }
 
     private suspend fun forwardPlain(
-        input: BufferedInputStream,
+        input: StreamReader,
         output: BufferedOutputStream,
         method: String,
         host: String,
@@ -267,7 +265,7 @@ class HttpProxyServer(
             }
             onLog("HTTP $method $host:$port$path")
 
-            val upIn = upstream.getInputStream()
+            val upIn = StreamReader(upstream.getInputStream())
             val statusLine = readLine(upIn) ?: throw IOException("no response from upstream")
             val respHeaders = readHeaders(upIn) ?: throw IOException("no response headers")
             val statusCode = statusLine.split(" ")[1]
@@ -430,27 +428,31 @@ class HttpProxyServer(
         respHeaders: List<String>,
         keepAlive: Boolean
     ) {
-        output.write("$statusLine\r\n".toByteArray())
+        val sb = StringBuilder()
+        sb.append(statusLine).append("\r\n")
         for (h in respHeaders) {
             if (h.startsWith("Proxy-", true)) continue
             if (h.startsWith("Connection:", true)) continue
             if (h.startsWith("Proxy-Connection:", true)) continue
-            output.write("$h\r\n".toByteArray())
+            sb.append(h).append("\r\n")
         }
-        output.write("Connection: ${if (keepAlive) "keep-alive" else "close"}\r\n\r\n".toByteArray())
+        sb.append("Connection: ").append(if (keepAlive) "keep-alive" else "close").append("\r\n\r\n")
+        output.write(sb.toString().toByteArray(Charsets.ISO_8859_1))
         output.flush()
     }
 
     /** Forward a chunked response verbatim (preserving chunk framing) to the client. */
-    private fun forwardChunkedResponse(input: InputStream, output: OutputStream) {
+    private fun forwardChunkedResponse(input: StreamReader, output: OutputStream) {
         while (running.get()) {
             val sizeLine = readLine(input) ?: return
-            output.write("$sizeLine\r\n".toByteArray())
+            output.write(sizeLine.toByteArray(Charsets.ISO_8859_1))
+            output.write(CRLF)
             val size = sizeLine.split(";")[0].trim().toIntOrNull(16) ?: return
             if (size == 0) {
                 while (true) {
                     val trailer = readLine(input) ?: return
-                    output.write("$trailer\r\n".toByteArray())
+                    output.write(trailer.toByteArray(Charsets.ISO_8859_1))
+                    output.write(CRLF)
                     if (trailer.isEmpty()) break
                 }
                 return
@@ -463,7 +465,7 @@ class HttpProxyServer(
                 read += n
             }
             output.write(body, 0, size)
-            output.write("\r\n".toByteArray())
+            output.write(CRLF)
             output.flush()
             readLine(input) // consume trailing CRLF after chunk
         }
@@ -486,7 +488,7 @@ class HttpProxyServer(
 
     private suspend fun handleConnect(
         client: Socket,
-        input: InputStream,
+        input: StreamReader,
         output: BufferedOutputStream,
         target: String
     ) {
@@ -514,7 +516,7 @@ class HttpProxyServer(
             // request stream open while expecting the response to flow back).
             coroutineScope {
                 val toServer = launch { pump(input, up.getOutputStream()) }
-                val toClient = launch { pump(up.getInputStream(), output) }
+                val toClient = launch { pump(StreamReader(up.getInputStream()), output) }
                 toServer.join()
                 toClient.join()
             }
@@ -558,42 +560,23 @@ class HttpProxyServer(
         }
     }
 
-    private fun readLine(input: InputStream): String? {
-        val bos = ByteArrayOutputStream()
-        var b: Int
-        while (true) {
-            b = try {
-                input.read()
-            } catch (e: Exception) {
-                return null
-            }
-            if (b < 0) return null
-            if (b == '\n'.code) break
-            if (b != '\r'.code) bos.write(b)
-        }
-        return bos.toString("ISO-8859-1")
-    }
+    private fun readLine(reader: StreamReader): String? = reader.readLine()
 
-    private fun readHeaders(input: InputStream): List<String>? {
-        val headers = mutableListOf<String>()
-        while (true) {
-            val line = readLine(input) ?: return null
-            if (line.isEmpty()) return headers
-            headers.add(line)
-        }
-    }
+    private fun readHeaders(reader: StreamReader): List<String>? = reader.readHeaders()
 
-    private fun pumpChunked(input: InputStream, dst: OutputStream) {
+    private fun pumpChunked(input: StreamReader, dst: OutputStream) {
         try {
             while (running.get()) {
                 val sizeLine = readLine(input) ?: return
                 val size = sizeLine.split(";")[0].trim().toIntOrNull(16) ?: return
-                dst.write("$sizeLine\r\n".toByteArray())
+                dst.write(sizeLine.toByteArray(Charsets.ISO_8859_1))
+                dst.write(CRLF)
                 if (size == 0) {
                     // trailers
                     while (true) {
                         val l = readLine(input) ?: return
-                        dst.write("$l\r\n".toByteArray())
+                        dst.write(l.toByteArray(Charsets.ISO_8859_1))
+                        dst.write(CRLF)
                         if (l.isEmpty()) return
                     }
                 }
@@ -605,7 +588,7 @@ class HttpProxyServer(
                     read += n
                 }
                 dst.write(body, 0, size)
-                dst.write("\r\n".toByteArray())
+                dst.write(CRLF)
                 dst.flush()
                 readLine(input) // CRLF after chunk
             }
@@ -621,7 +604,7 @@ class HttpProxyServer(
     }
 
     private suspend fun pump(src: InputStream, dst: OutputStream) {
-        val buf = ByteArray(65536)
+        val buf = PUMP_BUF.get()
         try {
             while (running.get()) {
                 val n = src.read(buf)
@@ -653,7 +636,7 @@ class HttpProxyServer(
     }
 
     private fun servePanel(
-        input: BufferedInputStream,
+        input: StreamReader,
         output: BufferedOutputStream,
         method: String,
         target: String,
@@ -785,4 +768,84 @@ class HttpProxyServer(
     private fun escapeHtml(s: String): String = s
         .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         .replace("\"", "&quot;").replace("'", "&#39;")
+
+    companion object {
+        // Reused across pump() calls on the same worker thread, so dozens of
+        // concurrent tunnels don't each allocate a fresh 64KB buffer (GC churn).
+        private val PUMP_BUF = ThreadLocal.withInitial { ByteArray(65536) }
+        private val CRLF = "\r\n".toByteArray(Charsets.ISO_8859_1)
+    }
+}
+
+/**
+ * Buffered reader over an [InputStream] that reads lines in bulk instead of
+ * one byte per [InputStream.read] call. Header/status/chunk-size lines used to
+ * be parsed one byte at a time (20-40+ read calls per request) which murdered
+ * throughput under many small requests. This drains 8KB chunks and scans for
+ * the line terminator in-memory, and keeps the line buffer + bulk reads
+ * consistent so callers can mix [readLine] with bulk [read] on the same stream.
+ */
+private class StreamReader(private val src: InputStream) : InputStream() {
+    private val buf = ByteArray(8192)
+    private var pos = 0
+    private var end = 0
+    private var lineBuf = ByteArray(256)
+
+    override fun read(): Int {
+        if (pos >= end && !fill()) return -1
+        return buf[pos++].toInt() and 0xff
+    }
+
+    override fun read(out: ByteArray, off: Int, len: Int): Int {
+        if (len == 0) return 0
+        var copied = 0
+        while (copied < len) {
+            if (pos >= end) {
+                if (!fill()) break
+            }
+            val avail = minOf(len - copied, end - pos)
+            System.arraycopy(buf, pos, out, off + copied, avail)
+            pos += avail
+            copied += avail
+        }
+        return if (copied == 0) -1 else copied
+    }
+
+    fun readLine(): String? {
+        var len = 0
+        while (true) {
+            if (pos >= end && !fill()) return null
+            while (pos < end) {
+                val b = buf[pos++]
+                if (b == '\n'.toByte()) {
+                    return String(lineBuf, 0, len, Charsets.ISO_8859_1)
+                }
+                if (b != '\r'.toByte()) {
+                    if (len >= lineBuf.size) growLine(len)
+                    lineBuf[len++] = b
+                }
+            }
+        }
+    }
+
+    fun readHeaders(): List<String>? {
+        val headers = mutableListOf<String>()
+        while (true) {
+            val line = readLine() ?: return null
+            if (line.isEmpty()) return headers
+            headers.add(line)
+        }
+    }
+
+    private fun growLine(len: Int) {
+        val newBuf = ByteArray(maxOf(lineBuf.size * 2, len + 1))
+        System.arraycopy(lineBuf, 0, newBuf, 0, len)
+        lineBuf = newBuf
+    }
+
+    private fun fill(): Boolean {
+        end = src.read(buf, 0, buf.size)
+        pos = 0
+        return end > 0
+    }
 }
