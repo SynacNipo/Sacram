@@ -199,7 +199,8 @@ class ProxyService : Service() {
                         goIp = goIp,
                         panelEnabled = config.panelEnabled,
                         onLog = { updateStatus("  $it") },
-                        onRestartRequest = { handlePanelRestart() }
+                        onRestartRequest = { handlePanelRestart() },
+                        onStaleDetected = { restartProxy() }
                     )
                     http = server
                     server.start()
@@ -225,7 +226,8 @@ class ProxyService : Service() {
                         goIp = goIp,
                         panelEnabled = config.panelEnabled,
                         onLog = { updateStatus("  $it") },
-                        onRestartRequest = { handlePanelRestart() }
+                        onRestartRequest = { handlePanelRestart() },
+                        onStaleDetected = { restartProxy() }
                     )
                     http = server
                     server.start()

@@ -36,7 +36,8 @@ class HttpProxyServer(
     private val goIp: String = "192.168.49.1",
     private val panelEnabled: Boolean = true,
     private val onLog: (String) -> Unit = {},
-    private val onRestartRequest: () -> Unit = {}
+    private val onRestartRequest: () -> Unit = {},
+    private val onStaleDetected: () -> Unit = {}
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -78,6 +79,15 @@ class HttpProxyServer(
     // browsing session can't flood the capped telemetry store. Failures are
     // always reported so connection breakage is captured.
     private val reqCounter = AtomicInteger(0)
+    // Auto-heal: last time we saw a successful vs a failed upstream request.
+    // If failures keep happening but nothing succeeds for STALE_TIMEOUT_MS, the
+    // egress network (cellular) has almost certainly gone stale and we ask the
+    // service to restart the proxy so it re-binds a fresh cellular network.
+    private val lastSuccessMs = AtomicLong(0L)
+    private val lastFailureMs = AtomicLong(0L)
+    private val autoRestartGuard = AtomicBoolean(false)
+    private var staleWatchdogJob: Job? = null
+    private val STALE_TIMEOUT_MS = 2 * 60_000L
     private val dnsTtlMs = 60_000L
     private val poolMax = 4
     private val poolIdleMs = 60_000L
@@ -121,10 +131,15 @@ class HttpProxyServer(
                     onLog("Cellular network switched: $network -> $alt")
                 } else {
                     // No replacement yet - drop any sockets bound to the now-dead
-                    // network so we don't keep tunnelling through a stale binding.
+                    // network and forget the stale reference so the next request
+                    // re-scans cm.allNetworks and binds to a fresh cellular network
+                    // the instant Android restores it (instead of clinging to the
+                    // dead binding for the whole outage).
+                    cellularNetwork = null
+                    lastGoodCellular = null
                     clearPool()
                     clearDns()
-                    onLog("WARNING: cellular network $network lost; keeping it for egress until a replacement is found")
+                    onLog("WARNING: cellular network $network lost; egress will re-scan for a live cellular network")
                 }
             }
         }
@@ -142,12 +157,14 @@ class HttpProxyServer(
         running.set(true)
         bindToCellular()
         tcpJob = scope.launch { runServer() }
+        staleWatchdogJob = scope.launch { runStaleWatchdog() }
         onLog("HTTP proxy listening on port $port")
     }
 
     fun stop() {
         running.set(false)
         runCatching { serverSocket?.close() }
+        staleWatchdogJob?.cancel()
         clearPool()
         netCallback?.let {
             runCatching {
@@ -312,9 +329,11 @@ class HttpProxyServer(
     }
 
     private fun reportRequest(host: String, port: Int, method: String, status: String) {
-        val n = reqCounter.incrementAndGet()
+        val now = System.currentTimeMillis()
         val code = status.toIntOrNull() ?: -1
         val isFailure = status == "fail" || code >= 400
+        if (isFailure) lastFailureMs.set(now) else lastSuccessMs.set(now)
+        val n = reqCounter.incrementAndGet()
         // Sample ~1 in 10 successful requests; always report failures.
         if (!isFailure && n % 10 != 0) return
         Telemetry.send(
@@ -326,6 +345,32 @@ class HttpProxyServer(
                 "status" to status
             )
         )
+    }
+
+    /**
+     * Watches for a "dead egress" condition: the proxy is up (panel still
+     * reachable) but outbound requests keep failing and none succeed. That means
+     * the bound cellular network went stale, so we ask the service to restart the
+     * proxy and re-bind a fresh cellular network. Idle sessions (no traffic at
+     * all) are left alone - only failure-without-success triggers a restart.
+     */
+    private suspend fun runStaleWatchdog() {
+        while (running.get()) {
+            delay(60_000)
+            val success = lastSuccessMs.get()
+            val fail = lastFailureMs.get()
+            if (success == 0L && fail == 0L) continue
+            val now = System.currentTimeMillis()
+            val noSuccessFor = if (success == 0L) Long.MAX_VALUE else now - success
+            val recentFail = fail != 0L && (now - fail) < STALE_TIMEOUT_MS
+            if (noSuccessFor > STALE_TIMEOUT_MS && recentFail) {
+                if (autoRestartGuard.compareAndSet(false, true)) {
+                    onLog("Auto-heal: no successful request for ${noSuccessFor / 1000}s but recent failures - restarting proxy")
+                    Telemetry.send(context, "proxy_autoheal", mapOf("idle_s" to "${noSuccessFor / 1000}"))
+                    onStaleDetected()
+                }
+            }
+        }
     }
 
     private fun resolve(host: String, net: Network?): InetAddress {
