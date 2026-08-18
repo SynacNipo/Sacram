@@ -52,6 +52,26 @@ class HttpProxyServer(
     private var netCallback: ConnectivityManager.NetworkCallback? = null
     private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
+    // Cached outbound (cellular) network selection, mirroring Socks5Server.
+    // NetworkUtils.pickCellular() scans cm.allNetworks + calls
+    // getNetworkCapabilities() per network - too expensive to run on every
+    // new upstream connection (a busy page opens dozens in parallel). Cache
+    // the resolved Network and only re-validate on a short timer.
+    private var cachedNet: Network? = null
+    private var cachedNetTime = 0L
+
+    private fun pickNet(): Network? {
+        val now = System.currentTimeMillis()
+        val cached = cachedNet
+        if (cached != null && now - cachedNetTime < 3000 && isValidCellular(cached)) {
+            return cached
+        }
+        val n = NetworkUtils.pickCellular(cm, cellularNetwork) ?: lastGoodCellular ?: cached
+        cachedNet = n
+        cachedNetTime = now
+        return n
+    }
+
     private val dnsCache = ConcurrentHashMap<String, Pair<InetAddress, Long>>()
     private val connPool = ConcurrentHashMap<String, MutableList<Pair<Socket, Long>>>()
     // Per-request telemetry sampler: we never log full URLs, only the host
@@ -328,7 +348,7 @@ class HttpProxyServer(
         if (reused != null && !reused.isClosed && reused.isConnected) {
             return reused
         }
-        val net = NetworkUtils.pickCellular(cm, cellularNetwork) ?: lastGoodCellular
+        val net = pickNet()
         val addr = resolve(host, net)
         val up = Socket()
         try {
@@ -379,6 +399,10 @@ class HttpProxyServer(
     }
 
     private fun clearPool() {
+        // A network switch leaves the cached upstream network stale; drop it so
+        // egress doesn't serve a dead binding for up to the 3s cache window.
+        cachedNet = null
+        cachedNetTime = 0L
         for ((_, list) in connPool) {
             synchronized(list) {
                 for ((sock, _) in list) runCatching { sock.close() }
@@ -462,7 +486,7 @@ class HttpProxyServer(
         val host = hostPort[0]
         val port = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
         try {
-            val net = NetworkUtils.pickCellular(cm, cellularNetwork) ?: lastGoodCellular
+            val net = pickNet()
             val resolved = resolve(host, net)
             val up = Socket()
             net?.bindSocket(up)

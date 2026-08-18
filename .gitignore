@@ -9,6 +9,7 @@ captures/
 .cxx/
 .env
 src/tools/
-!src/tools/mihomo/SacramConnect.bat
-!src/tools/mihomo/config.yaml
+!src/tools/singbox/SacramConnect.bat
+!src/tools/singbox/detect.ps1
+!src/tools/singbox/config.json
 WORKFLOW.md
