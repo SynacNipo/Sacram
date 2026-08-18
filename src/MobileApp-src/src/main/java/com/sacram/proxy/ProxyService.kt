@@ -253,14 +253,33 @@ class ProxyService : Service() {
                 }
             }
 
-            // client count poller + health heartbeat (every 5 min)
+            // client count poller + group-keepalive + health heartbeat (every 5 min)
             var beats = 0
+            var groupRecreateGuard = false
             while (currentCoroutineContext().isActive && started.get()) {
                 delay(5000)
                 p2p.requestGroupInfo { g ->
-                    val n = g?.clientList?.size ?: 0
-                    AppState.apInfo.value = AppState.apInfo.value.copy(clients = n)
-                    AppState.status.value = "RUNNING - clients connected: $n"
+                    if (g == null) {
+                        // Android silently tears down the P2P group on inactivity
+                        // (no connected client / no traffic) even though the wifi
+                        // radio stays on. Recreate it so the AP just stays alive
+                        // instead of dropping, without restarting the proxy servers.
+                        if (!groupRecreateGuard && started.get()) {
+                            groupRecreateGuard = true
+                            Log.w(TAG, "WiFi Direct group lost (inactivity) - recreating to keep AP alive")
+                            Telemetry.send(this, "p2p_group_recreated", mapOf("reason" to "inactivity_drop"))
+                            scope.launch {
+                                recreateGroup(p2p, config)
+                                groupRecreateGuard = false
+                            }
+                        }
+                        AppState.apInfo.value = AppState.apInfo.value.copy(clients = 0)
+                        AppState.status.value = "RUNNING - AP re-forming..."
+                    } else {
+                        val n = g.clientList?.size ?: 0
+                        AppState.apInfo.value = AppState.apInfo.value.copy(clients = n)
+                        AppState.status.value = "RUNNING - clients connected: $n"
+                    }
                 }
                 beats++
                 if (beats % 60 == 0) {
@@ -315,6 +334,53 @@ class ProxyService : Service() {
             PanelApproval.submit(mapOf("action" to "restart"))
         } else {
             restartProxy()
+        }
+    }
+
+    /**
+     * Re-create the WiFi Direct group in place (without tearing down the SOCKS5 /
+     * HTTP proxy servers) after Android dropped it due to inactivity. Uses the
+     * same SSID/passphrase so any reconnecting client just sees the AP come back.
+     */
+    private suspend fun recreateGroup(p2p: WifiDirectManager, config: AppConfig) {
+        if (!started.get()) return
+        p2p.removeExistingGroup {
+            p2p.createGroup(config.ssid, config.password) { ok, msg ->
+                Log.i(TAG, "recreateGroup createGroup ok=$ok msg=$msg")
+            }
+        }
+        var formed = false
+        for (i in 0 until 30) {
+            delay(500)
+            if (!started.get()) return
+            var got = false
+            p2p.requestGroupInfo { g -> got = true; if (g != null) formed = true }
+            var loop = 0
+            while (!got && loop < 20) { delay(50); loop++ }
+            if (formed) break
+        }
+        if (formed) {
+            p2p.requestGroupInfo { g ->
+                if (g != null) {
+                    val goIp = p2p.getGroupOwnerIp()
+                    val hybrid = config.isHybrid()
+                    val httpMode = config.effectiveMode() == "http"
+                    AppState.apInfo.value = AppState.apInfo.value.copy(
+                        ssid = g.networkName,
+                        passphrase = g.passphrase,
+                        goIp = goIp
+                    )
+                    updateNotification(
+                        g.networkName, g.passphrase, goIp,
+                        if (httpMode) config.httpPort else config.port,
+                        if (hybrid) config.httpPort else 0,
+                        hybrid
+                    )
+                    Log.i(TAG, "WiFi Direct group recreated (kept alive) ssid=${g.networkName} goIp=$goIp")
+                }
+            }
+        } else {
+            Log.w(TAG, "recreateGroup failed to reform group in time")
         }
     }
 
