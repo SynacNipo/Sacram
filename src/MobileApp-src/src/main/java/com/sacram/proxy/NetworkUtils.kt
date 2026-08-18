@@ -23,13 +23,22 @@ object NetworkUtils {
     fun pickCellular(cm: ConnectivityManager, preferred: Network?): Network? {
         if (isValidCellular(cm, preferred)) return preferred
         val nets = runCatching { cm.allNetworks }.getOrNull().orEmpty()
+        // Prefer the system's ACTIVE network if it actually has internet. This is
+        // the network the phone itself uses for its own traffic (e.g. its own
+        // telemetry uploads reach the collector over it), so it is the most
+        // reliable egress. Some devices (e.g. HONOR) report a cellular network
+        // flagged with INTERNET that nonetheless does not route, while the active
+        // network (WiFi/another cellular path) works fine - binding to the dead
+        // cellular interface made every proxy request fail even though the phone
+        // had working internet. The WiFi-Direct P2P interface lacks
+        // NET_CAPABILITY_INTERNET, so it is never selected here.
+        val active = runCatching { cm.activeNetwork }.getOrNull()
+        if (isValidEgress(cm, active)) return active
         for (n in nets) {
             if (isValidCellular(cm, n)) return n
         }
         // Fallback: any network that actually has internet (e.g. WiFi, or a
-        // carrier/VPN path), not just cellular. The WiFi-Direct P2P interface
-        // lacks NET_CAPABILITY_INTERNET, so it is never selected here - we still
-        // never silently route egress to the dead P2P path.
+        // carrier/VPN path), not just cellular.
         for (n in nets) {
             if (isValidEgress(cm, n)) return n
         }

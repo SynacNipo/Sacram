@@ -235,10 +235,12 @@ class Socks5Server(
     private fun pickNet(): Network? {
         val now = System.currentTimeMillis()
         val cached = cachedNet
-        if (cached != null && now - cachedNetTime < 8000 && isValidCellular(cached)) {
+        if (cached != null && now - cachedNetTime < 8000 && NetworkUtils.isValidEgress(cm, cached)) {
             return cached
         }
-        val n = NetworkUtils.pickCellular(cm, cellularNetwork) ?: cached
+        // Pass null as preferred so pickCellular applies its active-network-first
+        // logic instead of blindly reusing the (possibly dead) cellular binding.
+        val n = NetworkUtils.pickCellular(cm, null) ?: cached
         cachedNet = n
         cachedNetTime = now
         return n
