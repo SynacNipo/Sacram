@@ -25,6 +25,8 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * HTTP proxy (RFC 7230 style): handles plain HTTP requests with absolute-form
