@@ -1,5 +1,8 @@
 # Sacram
 
+![Created](https://img.shields.io/badge/created-2026--08--11-blue)
+![Latest release](https://img.shields.io/github/v/release/SynacNipo/Sacram)
+
 > [!WARNING]
 > **ALPHA — HTTP/HTTPS PROXY ONLY IS STABLE**
 >
