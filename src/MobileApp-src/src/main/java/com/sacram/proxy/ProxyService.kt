@@ -94,6 +94,7 @@ class ProxyService : Service() {
         }
         acquireLocks()
         startFileWatcher()
+        PanelApproval.onRestart = { restartProxy() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -197,7 +198,8 @@ class ProxyService : Service() {
                         context = this,
                         goIp = goIp,
                         panelEnabled = config.panelEnabled,
-                        onLog = { updateStatus("  $it") }
+                        onLog = { updateStatus("  $it") },
+                        onRestartRequest = { handlePanelRestart() }
                     )
                     http = server
                     server.start()
@@ -222,7 +224,8 @@ class ProxyService : Service() {
                         context = this,
                         goIp = goIp,
                         panelEnabled = config.panelEnabled,
-                        onLog = { updateStatus("  $it") }
+                        onLog = { updateStatus("  $it") },
+                        onRestartRequest = { handlePanelRestart() }
                     )
                     http = server
                     server.start()
@@ -302,6 +305,15 @@ class ProxyService : Service() {
                 }
             }
         }.apply { startWatching() }
+    }
+
+    private fun handlePanelRestart() {
+        val cfg = ConfigManager.load(this)
+        if (cfg.requireApprovalRestart) {
+            PanelApproval.submit(mapOf("action" to "restart"))
+        } else {
+            restartProxy()
+        }
     }
 
     private fun restartProxy() {

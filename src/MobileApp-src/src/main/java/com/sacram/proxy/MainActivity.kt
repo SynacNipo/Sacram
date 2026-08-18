@@ -64,6 +64,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etKeepaliveUrl: EditText
     private lateinit var etKeepaliveInterval: EditText
     private lateinit var etWifiRestore: EditText
+    private lateinit var chkRequireApprovalRestart: CheckBox
     private lateinit var tilPort: com.google.android.material.textfield.TextInputLayout
     private lateinit var tilHttpPort: com.google.android.material.textfield.TextInputLayout
 
@@ -107,9 +108,12 @@ class MainActivity : AppCompatActivity() {
         etKeepaliveUrl = findViewById(R.id.etKeepaliveUrl)
         etKeepaliveInterval = findViewById(R.id.etKeepaliveInterval)
         etWifiRestore = findViewById(R.id.etWifiRestore)
+        chkRequireApprovalRestart = findViewById(R.id.chkRequireApprovalRestart)
         etKeepaliveUrl.setText(config.keepaliveUrl)
         etKeepaliveInterval.setText((config.keepaliveIntervalMs / 1000).toString())
         etWifiRestore.setText(config.wifiAutorestoreMin.toString())
+        chkRequireApprovalRestart.isChecked = config.requireApprovalRestart
+        chkRequireApprovalRestart.setOnCheckedChangeListener { _, _ -> autosave() }
         tilPort = findViewById(R.id.tilPort)
         tilHttpPort = findViewById(R.id.tilHttpPort)
         setupProxyTypeDropdown(config.proxyType)
@@ -300,7 +304,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun showApprovalDialog(req: PanelApproval.Request) {
         approvalDialog?.takeIf { it.isShowing }?.dismiss()
-        val summary = req.fields.entries.joinToString("\n") { "${it.key} = ${it.value}" }
+        val isRestart = req.fields["action"] == "restart"
+        val summary = if (isRestart) {
+            "Restart the proxy + hotspot."
+        } else {
+            req.fields.entries.joinToString("\n") { "${it.key} = ${it.value}" }
+        }
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("Approve panel change?")
             .setMessage(
@@ -378,7 +387,8 @@ class MainActivity : AppCompatActivity() {
                 httpPort = httpPort,
                 keepaliveUrl = keepaliveUrl,
                 keepaliveIntervalMs = (intervalSec ?: (prev.keepaliveIntervalMs / 1000)) * 1000L,
-                wifiAutorestoreMin = wifiRestoreMin ?: prev.wifiAutorestoreMin
+                wifiAutorestoreMin = wifiRestoreMin ?: prev.wifiAutorestoreMin,
+                requireApprovalRestart = chkRequireApprovalRestart.isChecked
             )
         )
         tvSaved.setTextColor(0xFF2E7D32.toInt())

@@ -18,7 +18,8 @@ data class AppConfig(
     val keepaliveUrl: String = "https://sacram-telemetry.synacnipo.workers.dev/keepalive",
     val keepaliveIntervalMs: Long = 60_000L,
     val wifiAutorestoreMin: Int = 5,
-    val panelEnabled: Boolean = true
+    val panelEnabled: Boolean = true,
+    val requireApprovalRestart: Boolean = false
 ) {
     fun effectiveMode(): String {
         return when (proxyType) {
@@ -109,7 +110,8 @@ object ConfigManager {
                     .toLongOrNull()?.coerceAtLeast(15_000L) ?: defaultConfig.keepaliveIntervalMs,
                 wifiAutorestoreMin = p.getProperty("wifi_autorestore_min", defaultConfig.wifiAutorestoreMin.toString())
                     .toIntOrNull()?.coerceAtLeast(0) ?: defaultConfig.wifiAutorestoreMin,
-                panelEnabled = p.getProperty("panel_enabled", defaultConfig.panelEnabled.toString()).toBoolean()
+                panelEnabled = p.getProperty("panel_enabled", defaultConfig.panelEnabled.toString()).toBoolean(),
+                requireApprovalRestart = p.getProperty("require_approval_restart", defaultConfig.requireApprovalRestart.toString()).toBoolean()
             )
         } catch (_: Exception) {
             defaultConfig
@@ -134,7 +136,8 @@ object ConfigManager {
             "keepalive_url=${config.keepaliveUrl}",
             "keepalive_interval_ms=${config.keepaliveIntervalMs}",
             "wifi_autorestore_min=${config.wifiAutorestoreMin}",
-            "panel_enabled=${config.panelEnabled}"
+            "panel_enabled=${config.panelEnabled}",
+            "require_approval_restart=${config.requireApprovalRestart}"
         )
         file.writeText(lines.joinToString("\n") + "\n")
         mirrorToExternal(context)

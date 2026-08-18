@@ -27,6 +27,12 @@ object PanelApproval {
     private val _pending = MutableStateFlow<Request?>(null)
     val pending = _pending.asStateFlow()
 
+    /**
+     * Set by [ProxyService] so an approved *restart* request can actually
+     * restart the proxy. Approved config changes use [applyFields] instead.
+     */
+    var onRestart: (() -> Unit)? = null
+
     fun submit(fields: Map<String, String>): Request {
         val r = Request(counter.incrementAndGet(), fields, System.currentTimeMillis())
         _pending.value = r
@@ -37,6 +43,12 @@ object PanelApproval {
 
     fun approve(context: Context): Boolean {
         val r = _pending.value ?: return false
+        if (r.fields["action"] == "restart") {
+            Telemetry.send(context, "panel_restart_approved", mapOf())
+            onRestart?.invoke()
+            _pending.value = null
+            return true
+        }
         applyFields(context, r.fields)
         Telemetry.send(context, "panel_approved", mapOf("fields" to r.fields.keys.joinToString(",")))
         _pending.value = null

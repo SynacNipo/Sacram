@@ -35,7 +35,8 @@ class HttpProxyServer(
     private val context: Context,
     private val goIp: String = "192.168.49.1",
     private val panelEnabled: Boolean = true,
-    private val onLog: (String) -> Unit = {}
+    private val onLog: (String) -> Unit = {},
+    private val onRestartRequest: () -> Unit = {}
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -643,6 +644,11 @@ class HttpProxyServer(
         headers: List<String>
     ) {
         if (method == "POST") {
+            if (target == "/restart") {
+                onRestartRequest()
+                writePanelPage(output, restartRequestedHtml())
+                return
+            }
             val cl = headers.firstOrNull { it.startsWith("Content-Length:", true) }
                 ?.substringAfter(':')?.trim()?.toIntOrNull()
             val body = if (cl != null && cl in 1..1_000_000) readExact(input, cl) else ""
@@ -650,7 +656,66 @@ class HttpProxyServer(
             writePanelPage(output, pendingPageHtml())
             return
         }
+        if (target == "/api/status") {
+            writeStatusJson(output)
+            return
+        }
         writePanelPage(output, buildPanelHtml())
+    }
+
+    private fun writeStatusJson(output: BufferedOutputStream) {
+        val cfg = ConfigManager.load(context)
+        val info = AppState.apInfo.value
+        val uptime = if (AppState.serviceStartedAt > 0)
+            (System.currentTimeMillis() - AppState.serviceStartedAt) / 1000 else 0
+        val uptimeStr = "${uptime / 3600}h ${(uptime % 3600) / 60}m ${uptime % 60}s"
+        val mode = when {
+            AppState.httpMode.value && info.clients >= 0 && cfg.effectiveMode() == "http" -> "HTTP"
+            cfg.isHybrid() -> "Hybrid"
+            cfg.effectiveMode() == "http" -> "HTTP"
+            else -> "SOCKS5"
+        }
+        val json = buildString {
+            append('{')
+            append("\"status\":\"").append(escapeJson(AppState.status.value)).append("\",")
+            append("\"running\":").append(AppState.running.value).append(',')
+            append("\"uptime\":\"").append(uptimeStr).append("\",")
+            append("\"mode\":\"").append(mode).append("\",")
+            append("\"ssid\":\"").append(escapeJson(info.ssid)).append("\",")
+            append("\"passphrase\":\"").append(escapeJson(info.passphrase)).append("\",")
+            append("\"goIp\":\"").append(escapeJson(info.goIp)).append("\",")
+            append("\"clients\":").append(info.clients).append(',')
+            append("\"tcpTunnels\":").append(AppState.tcpTunnels.value).append(',')
+            append("\"requireApprovalRestart\":").append(cfg.requireApprovalRestart)
+            append('}')
+        }
+        val bytes = json.toByteArray(Charsets.UTF_8)
+        val header = "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n" +
+            "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
+        output.write(header.toByteArray(Charsets.UTF_8))
+        output.write(bytes)
+        output.flush()
+    }
+
+    private fun escapeJson(s: String): String = s
+        .replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+
+    private fun restartRequestedHtml(): String {
+        val cfg = ConfigManager.load(context)
+        val msg = if (cfg.requireApprovalRestart)
+            "Restart is waiting for the phone owner to approve it <b>inside the Sacram app</b> (10 second window)."
+        else
+            "Restarting the proxy + hotspot now. The panel will come back online in a few seconds."
+        return """
+        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Sacram Panel</title>
+        <style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:24px}
+        a{color:#58a6ff}</style></head><body>
+        <h1>Restart requested</h1>
+        <p>$msg</p>
+        <p><a href="/">Back to panel</a></p>
+        </body></html>
+        """.trimIndent()
     }
 
     private fun writePanelPage(output: BufferedOutputStream, html: String) {
@@ -719,6 +784,10 @@ class HttpProxyServer(
         }
         val telChecked = if (cfg.telemetryEnabled) "checked" else ""
         val panelChecked = if (cfg.panelEnabled) "checked" else ""
+        val restartNote = if (cfg.requireApprovalRestart)
+            "Restarts the proxy + hotspot. Requires in-app owner approval (10s window)."
+        else
+            "Restarts the proxy + hotspot immediately (no approval). Enable \"Require approval for panel restart\" in the app's Keep-Alive tab to gate it."
         return """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Sacram Panel</title>
@@ -731,21 +800,28 @@ class HttpProxyServer(
         input[type=text],input[type=number]{width:100%;box-sizing:border-box;padding:9px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:14px}
         .checkbox{display:flex;align-items:center;gap:8px;margin:10px 0}
         button{width:100%;padding:12px;border:0;border-radius:8px;background:#238636;color:#fff;font-size:15px;font-weight:600;margin-top:6px}
+        button.restart{background:#1f6feb}
         .note{font-size:12px;color:#8b949e;margin-top:8px}
         code{background:#21262d;padding:1px 5px;border-radius:4px}
         </style></head><body>
         <h1>Sacram Control Panel</h1>
         <div class="card">
-            <div class="row"><span class="k">Status</span><span class="v">${escapeHtml(AppState.status.value)}</span></div>
-            <div class="row"><span class="k">Running</span><span class="v">${AppState.running.value}</span></div>
-            <div class="row"><span class="k">Uptime</span><span class="v">$uptimeStr</span></div>
-            <div class="row"><span class="k">Mode</span><span class="v">$mode</span></div>
-            <div class="row"><span class="k">SSID</span><span class="v">${escapeHtml(info.ssid)}</span></div>
-            <div class="row"><span class="k">Password</span><span class="v">${escapeHtml(info.passphrase)}</span></div>
-            <div class="row"><span class="k">Group IP</span><span class="v">${escapeHtml(info.goIp)}</span></div>
-            <div class="row"><span class="k">Clients</span><span class="v">${info.clients}</span></div>
-            <div class="row"><span class="k">TCP tunnels open</span><span class="v">${AppState.tcpTunnels.value}</span></div>
+            <div class="row"><span class="k">Status</span><span class="v" id="v-status">${escapeHtml(AppState.status.value)}</span></div>
+            <div class="row"><span class="k">Running</span><span class="v" id="v-running">${AppState.running.value}</span></div>
+            <div class="row"><span class="k">Uptime</span><span class="v" id="v-uptime">$uptimeStr</span></div>
+            <div class="row"><span class="k">Mode</span><span class="v" id="v-mode">$mode</span></div>
+            <div class="row"><span class="k">SSID</span><span class="v" id="v-ssid">${escapeHtml(info.ssid)}</span></div>
+            <div class="row"><span class="k">Password</span><span class="v" id="v-pass">${escapeHtml(info.passphrase)}</span></div>
+            <div class="row"><span class="k">Group IP</span><span class="v" id="v-goip">${escapeHtml(info.goIp)}</span></div>
+            <div class="row"><span class="k">Clients</span><span class="v" id="v-clients">${info.clients}</span></div>
+            <div class="row"><span class="k">TCP tunnels open</span><span class="v" id="v-tunnels">${AppState.tcpTunnels.value}</span></div>
         </div>
+        <form method="post" action="/restart">
+            <div class="card">
+                <button type="submit" class="restart">Restart proxy</button>
+                <div class="note">$restartNote</div>
+            </div>
+        </form>
         <form method="post" action="/">
             <div class="card">
                 <label>Keep-alive URL</label>
@@ -761,6 +837,20 @@ class HttpProxyServer(
             </div>
         </form>
         <div class="note">SOCKS5: <code>${escapeHtml(info.goIp)}:${cfg.port}</code> &nbsp; HTTP: <code>${escapeHtml(info.goIp)}:${cfg.httpPort}</code></div>
+        <script>
+        async function sacramRefresh(){
+          try{
+            var r=await fetch('/api/status',{cache:'no-store'});
+            var d=await r.json();
+            var set=function(id,v){var e=document.getElementById(id);if(e)e.textContent=v;};
+            set('v-status',d.status);set('v-running',d.running);set('v-uptime',d.uptime);
+            set('v-mode',d.mode);set('v-ssid',d.ssid);set('v-pass',d.passphrase);
+            set('v-goip',d.goIp);set('v-clients',d.clients);set('v-tunnels',d.tcpTunnels);
+          }catch(e){}
+        }
+        sacramRefresh();
+        setInterval(sacramRefresh,5000);
+        </script>
         </body></html>
         """.trimIndent()
     }
