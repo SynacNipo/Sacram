@@ -12,7 +12,10 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "1.0"
+        // Overridable from CI via -PappVersion so the keep-alive heartbeat reports
+        // the exact release tag the build is published under.
+        val appVersion = (project.findProperty("appVersion") as? String) ?: "1.41"
+        versionName = appVersion
     }
 
     buildTypes {

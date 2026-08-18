@@ -20,15 +20,6 @@
 | SOCKS5 (TCP)     | Unverified    | Bidirectional pump reworked; not yet validated end-to-end         |
 | SOCKS5 UDP       | Paused        | UDP ASSOCIATE exists; dev paused, not actively worked on           |
 
-Known open issues (UDP path paused):
-- TUN starts but upstream DNS resolution was failing (public DoH
-  unreachable through the phone proxy); now resolved via DoH-through-phone
-  in the sing-box config.
-- UDP/QUIC (`can't resolve ip`) failures need verification after the DNS fix —
-  paused, not currently being actively addressed.
-- The auto-detected "phone" gateway may be wrong when the phone isn't the
-  default route.
-
 ---
 
 Android app (Kotlin) that turns any spare Android phone into a **WiFi Direct hotspot + proxy** so a PC can reach the internet through the phone's data connection — UDP included.
@@ -118,7 +109,10 @@ Done automatically by the app:
   (`keepalive_url`, default every `keepalive_interval_ms=60000`) so the OS sees
   ongoing traffic and is less likely to idle / Doze / kill the process. Configure
   it in the **Keep-Alive** tab or `config.txt`. This is a supplement to the items
-  below, not a replacement for them.
+  below, not a replacement for them. Each heartbeat also reports the app's release
+  version in the `X-Sacram-Version` header and `Sacram-KeepAlive/<version>`
+  User-Agent, so the telemetry endpoint can see which build is alive. The version
+  is set automatically by CI from the computed release tag (`-PappVersion`).
 - **WiFi radio auto-restore** — if the WiFi radio gets turned off while the proxy
   is meant to run, the app waits `wifi_autorestore_min` (default `5`) minutes and
   then re-enables WiFi and rebuilds the hotspot. Set `0` to disable. It does **not**
@@ -177,10 +171,3 @@ telemetry to work.
 CI only — GitHub Actions builds the APK on demand. Pushing to `main` with
 `[Trigger]` in the commit message builds and publishes the next versioned
 release (`sacram.apk`). Plain commits are gated and never build.
-
-## API notes (researched)
-
-- `WifiP2pManager.createGroup(Channel, WifiP2pConfig, ActionListener)` honors `WifiP2pConfig.Builder.setNetworkName()` / `setPassphrase()` (SSID must match `^DIRECT-[a-zA-Z0-9]{2}`, passphrase 8–63)
-- Requires runtime `ACCESS_FINE_LOCATION` (AOSP `@RequiresPermission` on createGroup) and `NEARBY_WIFI_DEVICES` on Android 13+
-- `android:foregroundServiceType="connectedDevice"` (API 31+); `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission needed when targeting API 34+
-- SOCKS5 UDP = RFC 1928 UDP ASSOCIATE (fragmentation dropped per spec, domain targets resolved server-side)

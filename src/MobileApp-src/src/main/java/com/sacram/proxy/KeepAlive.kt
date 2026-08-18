@@ -39,6 +39,7 @@ object KeepAlive {
                         readTimeout = 8000
                         instanceFollowRedirects = true
                         setRequestProperty("User-Agent", "Sacram-KeepAlive/${BuildConfig.VERSION_NAME}")
+                        setRequestProperty("X-Sacram-Version", BuildConfig.VERSION_NAME)
                         setRequestProperty("X-Sacram-Keepalive", "1")
                     }
                     conn.responseCode

@@ -53,18 +53,12 @@ jobs:
       - name: Make wrapper executable
         run: chmod +x src/gradle-stuff/gradlew
 
-      - name: Build debug APK
-        run: cd src/gradle-stuff && ./gradlew assembleDebug --no-daemon
-
-      - name: Rename APK to sacram.apk
-        run: cp src/MobileApp-src/build/outputs/apk/debug/app-debug.apk src/MobileApp-src/build/outputs/apk/debug/sacram.apk
-
       - name: Compute next free release tag
         id: tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          latest=$(gh release list --json tagName -q '.[].tagName' | sort -V | tail -1)
+          latest=$(gh release list --json tagName -q '.[].tagName' | grep -v nightly | sort -V | tail -1)
           if [ -z "$latest" ]; then
             latest="v0.0"
           fi
@@ -76,6 +70,12 @@ jobs:
             next="v$major.$minor"
           done
           echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Build debug APK
+        run: cd src/gradle-stuff && ./gradlew assembleDebug --no-daemon -PappVersion="${{ steps.tag.outputs.tag }}"
+
+      - name: Rename APK to sacram.apk
+        run: cp src/MobileApp-src/build/outputs/apk/debug/app-debug.apk src/MobileApp-src/build/outputs/apk/debug/sacram.apk
 
       - name: Publish release (auto-incremented tag)
         env:
