@@ -383,15 +383,45 @@ class HttpProxyServer(
         // Resolve on the same network the upstream socket is bound to. Using the
         // default resolver would query the WiFi Direct interface (no DNS/internet)
         // when the phone is the group owner, so every request would fail to resolve.
-        // Resolve ONLY on the egress network we will bind the socket to. Falling
-        // back to the default resolver would query the WiFi-Direct interface
-        // (no DNS/internet) when the phone is the Group Owner, producing an
-        // address that is unreachable from the bound cellular socket.
-        val addrs = net?.getAllByName(host)
+        // However, when no explicit egress Network is available (or it is stale),
+        // fall back to the system default resolver so a host we DO have internet
+        // for still resolves. The system default route points at the phone's real
+        // internet path (cellular / station WiFi), never the WiFi-Direct interface,
+        // which has no DNS server of its own - so this is safe.
+        val addrs = if (net != null) net.getAllByName(host) else InetAddress.getAllByName(host)
         val addr = addrs?.firstOrNull()
             ?: throw IOException("DNS resolution failed for $host on egress network $net")
         dnsCache[host] = addr to (now + dnsTtlMs)
         return addr
+    }
+
+    /**
+     * Opens an upstream TCP socket to [host]:[port] bound to [net] (if non-null).
+     * Returns null on any DNS/connect/bind failure instead of throwing, so callers
+     * can try the next candidate. When [net] is null the system default route is
+     * used - this is the critical last-resort path that lets browsing work
+     * whenever the phone itself has working internet, even if the
+     * ConnectivityManager Network APIs transiently report no usable egress.
+     */
+    private fun dial(host: String, port: Int, net: Network?): Socket? {
+        return try {
+            val addr = resolve(host, net)
+            val up = Socket()
+            try {
+                net?.bindSocket(up)
+                up.soTimeout = readTimeoutMs
+                up.tcpNoDelay = true
+                up.connect(InetSocketAddress(addr, port), connectTimeoutMs)
+                up
+            } catch (e: Exception) {
+                runCatching { up.close() }
+                onLog("HTTP upstream connect failed: $host:$port -> $addr via $net : ${e.message}")
+                null
+            }
+        } catch (e: Exception) {
+            onLog("HTTP DNS failed for $host via $net : ${e.message}")
+            null
+        }
     }
 
     private fun acquireUpstream(host: String, port: Int): Socket {
@@ -410,41 +440,35 @@ class HttpProxyServer(
             return reused
         }
         val net = pickNet()
-        val addr = resolve(host, net)
-        val up = Socket()
-        try {
-            net?.bindSocket(up)
-            up.soTimeout = readTimeoutMs
-            up.tcpNoDelay = true
-            up.connect(InetSocketAddress(addr, port), connectTimeoutMs)
-            return up
-        } catch (e: Exception) {
-            runCatching { up.close() }
-            onLog("HTTP upstream connect failed: $host:$port -> $addr via $net : ${e.message}")
-            // The cached cellular network may have gone stale (very common while
-            // the phone is the WiFi-Direct Group Owner for a long session). Re-pick
-            // a live egress network once instead of failing on a dead binding.
+        var up = dial(host, port, net)
+        if (up == null) {
+            // The chosen egress network may have gone stale (very common while the
+            // phone is the WiFi-Direct Group Owner for a long session). Re-pick a
+            // live egress network once instead of failing on a dead binding.
             val fresh = cm.allNetworks.firstOrNull { isValidCellular(it) }
                 ?: cm.allNetworks.firstOrNull { NetworkUtils.isValidEgress(cm, it) }
             if (fresh != null && fresh != net) {
-                val up2 = Socket()
-                try {
-                    fresh.bindSocket(up2)
-                    up2.soTimeout = readTimeoutMs
-                    up2.tcpNoDelay = true
-                    up2.connect(InetSocketAddress(resolve(host, fresh), port), connectTimeoutMs)
+                up = dial(host, port, fresh)
+                if (up != null) {
+                    cachedNet = fresh
                     cellularNetwork = fresh
                     lastGoodCellular = fresh
                     clearPool()
                     clearDns()
-                    return up2
-                } catch (e2: Exception) {
-                    runCatching { up2.close() }
-                    onLog("HTTP upstream retry failed via $fresh: ${e2.message}")
                 }
             }
-            throw e
         }
+        if (up == null) {
+            // Last resort: connect over the system default route. This succeeds
+            // whenever the phone itself has working internet, even if every
+            // ConnectivityManager-reported Network is stale/unavailable. Without
+            // this, a transient gap in egress reporting 502s every request to
+            // sites like google.com while the device clearly has connectivity.
+            onLog("HTTP egress via chosen network failed for $host:$port; falling back to system default route")
+            up = dial(host, port, null)
+        }
+        if (up == null) throw IOException("could not reach $host:$port (no egress network)")
+        return up
     }
 
     private fun releaseUpstream(host: String, port: Int, sock: Socket) {
@@ -557,10 +581,14 @@ class HttpProxyServer(
         AppState.tcpTunnels.value = tunnelCount.get()
         try {
             val net = pickNet()
-            val resolved = resolve(host, net)
-            val up = Socket()
-            net?.bindSocket(up)
-            up.connect(InetSocketAddress(resolved, port), connectTimeoutMs)
+            var up = dial(host, port, net)
+            if (up == null) {
+                val fresh = cm.allNetworks.firstOrNull { isValidCellular(it) }
+                    ?: cm.allNetworks.firstOrNull { NetworkUtils.isValidEgress(cm, it) }
+                if (fresh != null && fresh != net) up = dial(host, port, fresh)
+            }
+            if (up == null) up = dial(host, port, null)
+            if (up == null) throw IOException("could not establish CONNECT tunnel to $host:$port")
             up.tcpNoDelay = true
             up.soTimeout = tunnelIdleTimeoutMs
             upstream = up
