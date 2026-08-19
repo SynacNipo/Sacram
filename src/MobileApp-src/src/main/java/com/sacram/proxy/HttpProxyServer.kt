@@ -240,7 +240,7 @@ class HttpProxyServer(
                     break
                 }
                 val keepAlive = headers.any { it.startsWith("Connection:", true) && it.contains("keep-alive", true) }
-                forwardPlain(reader, output, method, host, port, path, headers)
+                forwardPlain(reader, output, method, host, port, path, headers, keepAlive)
                 if (!keepAlive) break
             }
         } catch (_: Exception) {
@@ -256,7 +256,8 @@ class HttpProxyServer(
         host: String,
         port: Int,
         path: String,
-        headers: List<String>
+        headers: List<String>,
+        clientKeepAlive: Boolean
     ) {
         var upstream: Socket? = null
         try {
@@ -313,7 +314,7 @@ class HttpProxyServer(
             }
             val upstreamKeepAlive = !upstreamClose && (chunked || respLength != null)
 
-            writeResponseHeaders(output, statusLine, respHeaders, upstreamKeepAlive)
+            writeResponseHeaders(output, statusLine, respHeaders, clientKeepAlive)
 
             when {
                 chunked -> forwardChunkedResponse(upIn, output)
