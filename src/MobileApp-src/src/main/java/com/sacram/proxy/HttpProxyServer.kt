@@ -63,6 +63,17 @@ class HttpProxyServer(
 
     private fun pickNet(): Network? {
         val now = System.currentTimeMillis()
+        // Some OEMs (Honor/Huawei/Xiaomi) report a cellular Network with the
+        // INTERNET capability that nonetheless does not route - binding to it
+        // burns the full connect timeout before dial() gives up and falls back.
+        // The system's own active network is what the phone itself successfully
+        // uses for its own traffic, so it is the most trustworthy signal and is
+        // checked first on every call (cheap: one getNetworkCapabilities lookup).
+        val active = cm.activeNetwork
+        if (NetworkUtils.isValidEgress(cm, active)) {
+            if (cachedNet != active) { cachedNet = active; cachedNetTime = now }
+            return active
+        }
         val cached = cachedNet
         if (cached != null && now - cachedNetTime < 8000 && NetworkUtils.isValidEgress(cm, cached)) {
             return cached
