@@ -323,7 +323,7 @@ class HttpProxyServer(
             }
             output.flush()
 
-            if (upstreamKeepAlive) {
+            if (upstreamKeepAlive && !upIn.hasRemaining()) {
                 releaseUpstream(host, port, upstream)
                 upstream = null
             }
@@ -993,6 +993,7 @@ private class StreamReader(private val src: InputStream) : InputStream() {
             System.arraycopy(buf, pos, out, off + copied, avail)
             pos += avail
             copied += avail
+            if (pos >= end) break
         }
         return if (copied == 0) -1 else copied
     }
@@ -1022,6 +1023,9 @@ private class StreamReader(private val src: InputStream) : InputStream() {
             headers.add(line)
         }
     }
+
+    /** True when this reader holds bytes that were pulled past the logical end of a response. */
+    fun hasRemaining(): Boolean = pos < end
 
     private fun growLine(len: Int) {
         val newBuf = ByteArray(maxOf(lineBuf.size * 2, len + 1))
