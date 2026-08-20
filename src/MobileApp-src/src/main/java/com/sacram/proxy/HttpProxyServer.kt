@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -260,6 +261,7 @@ class HttpProxyServer(
         clientKeepAlive: Boolean
     ) {
         var upstream: Socket? = null
+        val t0 = System.currentTimeMillis()
         try {
             upstream = acquireUpstream(host, port)
             val upOut = BufferedOutputStream(upstream.getOutputStream())
@@ -302,7 +304,7 @@ class HttpProxyServer(
             val statusLine = readLine(upIn) ?: throw IOException("no response from upstream")
             val respHeaders = readHeaders(upIn) ?: throw IOException("no response headers")
             val statusCode = statusLine.split(" ")[1]
-            reportRequest(host, port, method, statusCode)
+            reportRequest(host, port, method, statusCode, System.currentTimeMillis() - t0)
 
             val chunked = respHeaders.any {
                 it.startsWith("Transfer-Encoding:", true) && it.contains("chunked", true)
@@ -329,7 +331,7 @@ class HttpProxyServer(
             }
         } catch (e: Exception) {
             onLog("HTTP fail $host:$port: ${e.message}")
-            reportRequest(host, port, method, "fail")
+            reportRequest(host, port, method, "fail", System.currentTimeMillis() - t0)
             writeSimpleResponse(output, 502, "Bad Gateway - ${e.message}")
         } finally {
             runCatching { upstream?.close() }
@@ -343,7 +345,7 @@ class HttpProxyServer(
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    private fun reportRequest(host: String, port: Int, method: String, status: String) {
+    private fun reportRequest(host: String, port: Int, method: String, status: String, dms: Long) {
         val now = System.currentTimeMillis()
         val code = status.toIntOrNull() ?: -1
         val isFailure = status == "fail" || code >= 400
@@ -357,7 +359,33 @@ class HttpProxyServer(
                 "host" to host,
                 "port" to "$port",
                 "method" to method,
-                "status" to status
+                "status" to status,
+                "dms" to "$dms"
+            )
+        )
+    }
+
+    private val tunnelEventCounter = AtomicInteger(0)
+
+    /**
+     * Reports a closed CONNECT tunnel. [upBytes] is the data that flowed from
+     * the upstream server to the client - if it is 0 the tunnel was
+     * established but the site never delivered anything (egress/DNS dead),
+     * which is exactly what a hanging page looks like. Such tunnels are always
+     * reported; healthy ones are sampled.
+     */
+    private fun reportTunnel(host: String, port: Int, dms: Long, upBytes: Long, dnBytes: Long, firstByteMs: Long) {
+        val gotData = upBytes > 0L
+        if (gotData && tunnelEventCounter.incrementAndGet() % 5 != 0) return
+        Telemetry.send(
+            context, "http_tunnel",
+            mapOf(
+                "host" to host,
+                "port" to "$port",
+                "dms" to "$dms",
+                "up_bytes" to "$upBytes",
+                "dn_bytes" to "$dnBytes",
+                "first_byte_ms" to "$firstByteMs"
             )
         )
     }
@@ -586,6 +614,7 @@ class HttpProxyServer(
         target: String
     ) {
         var upstream: Socket? = null
+        val t0 = System.currentTimeMillis()
         val hostPort = target.split(":")
         val host = hostPort[0]
         val port = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
@@ -607,19 +636,28 @@ class HttpProxyServer(
             output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray())
             output.flush()
             onLog("CONNECT $host:$port")
-            reportRequest(host, port, "CONNECT", "200")
-            // CONNECT tunnels are full-duplex: pump both directions concurrently
-            // (sequential pumping stalls HTTPS because the client keeps the
-            // request stream open while expecting the response to flow back).
+            reportRequest(host, port, "CONNECT", "200", System.currentTimeMillis() - t0)
+            val openAt = System.currentTimeMillis()
+            val firstByteMs = AtomicLong(-1L)
+            val upBytes = AtomicLong(0L)
+            val dnBytes = AtomicLong(0L)
             coroutineScope {
-                val toServer = launch { pump(input, up.getOutputStream()) }
-                val toClient = launch { pump(StreamReader(up.getInputStream()), output) }
-                toServer.join()
-                toClient.join()
+                val toServer = async {
+                    pump(input, up.getOutputStream()).also { dnBytes.set(it) }
+                }
+                val toClient = async {
+                    val timed = FirstByteTimer(up.getInputStream()) {
+                        firstByteMs.compareAndSet(-1L, System.currentTimeMillis() - openAt)
+                    }
+                    pump(StreamReader(timed), output).also { upBytes.set(it) }
+                }
+                toServer.await()
+                toClient.await()
             }
+            reportTunnel(host, port, System.currentTimeMillis() - openAt, upBytes.get(), dnBytes.get(), firstByteMs.get())
         } catch (e: Exception) {
             onLog("CONNECT fail $target: ${e.message}")
-            reportRequest(host, port, "CONNECT", "fail")
+            reportRequest(host, port, "CONNECT", "fail", System.currentTimeMillis() - t0)
             writeSimpleResponse(output, 502, "Bad Gateway - ${e.message}")
         } finally {
             runCatching { upstream?.close() }
@@ -700,17 +738,20 @@ class HttpProxyServer(
         }
     }
 
-    private suspend fun pump(src: InputStream, dst: OutputStream) {
+    private suspend fun pump(src: InputStream, dst: OutputStream): Long {
         val buf = PUMP_BUF.get()
+        var total = 0L
         try {
             while (running.get()) {
                 val n = src.read(buf)
                 if (n <= 0) break
                 dst.write(buf, 0, n)
+                total += n
                 if (n < buf.size) dst.flush()
             }
         } catch (_: Exception) {
         }
+        return total
     }
 
     // ---- Local control panel (served when a browser hits the proxy directly) ----
@@ -960,6 +1001,32 @@ class HttpProxyServer(
         // concurrent tunnels don't each allocate a fresh 64KB buffer (GC churn).
         private val PUMP_BUF = ThreadLocal.withInitial { ByteArray(65536) }
         private val CRLF = "\r\n".toByteArray(Charsets.ISO_8859_1)
+    }
+}
+
+/** InputStream wrapper that fires [onFirstByte] the first time data is read. */
+private class FirstByteTimer(
+    private val src: InputStream,
+    private val onFirstByte: () -> Unit
+) : InputStream() {
+    private var reported = false
+
+    override fun read(): Int {
+        val b = src.read()
+        if (b != -1 && !reported) {
+            reported = true
+            onFirstByte()
+        }
+        return b
+    }
+
+    override fun read(out: ByteArray, off: Int, len: Int): Int {
+        val n = src.read(out, off, len)
+        if (n > 0 && !reported) {
+            reported = true
+            onFirstByte()
+        }
+        return n
     }
 }
 
