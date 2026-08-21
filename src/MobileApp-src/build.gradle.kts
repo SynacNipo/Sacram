@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -28,7 +30,7 @@ android {
             if (b64 != null) {
                 val keyFile = File(project.rootDir, "sacram-release-key.jks")
                 if (!keyFile.exists()) {
-                    keyFile.writeBytes(java.util.Base64.getDecoder().decode(b64))
+                    keyFile.writeBytes(Base64.getDecoder().decode(b64))
                 }
                 storeFile = keyFile
                 storePassword = System.getenv("SACRAM_STORE_PASSWORD") ?: ""
