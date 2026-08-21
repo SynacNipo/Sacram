@@ -1,7 +1,21 @@
 # Sacram
 
 ![Created](https://img.shields.io/badge/created-2026--08--11-blue)
+![Platform](https://img.shields.io/badge/platform-Android%20%7C%20WiFi%20Direct-3DDC84)
+![Made with](https://img.shields.io/badge/made%20with-Kotlin-7F52FF)
 ![Latest release](https://img.shields.io/github/v/release/SynacNipo/Sacram)
+![Release date](https://img.shields.io/github/release-date/SynacNipo/Sacram)
+![Downloads](https://img.shields.io/github/downloads/SynacNipo/Sacram/total)
+![Last commit](https://img.shields.io/github/last-commit/SynacNipo/Sacram)
+![Commit activity](https://img.shields.io/github/commit-activity/m/SynacNipo/Sacram)
+![CI build](https://img.shields.io/github/actions/workflow/status/SynacNipo/Sacram/build.yml?label=CI%20build)
+![Issues](https://img.shields.io/github/issues/SynacNipo/Sacram)
+![Pull requests](https://img.shields.io/github/issues-pr/SynacNipo/Sacram)
+![Stars](https://img.shields.io/github/stars/SynacNipo/Sacram)
+![Forks](https://img.shields.io/github/forks/SynacNipo/Sacram)
+![Repo size](https://img.shields.io/github/repo-size/SynacNipo/Sacram)
+![Top language](https://img.shields.io/github/languages/top/SynacNipo/Sacram)
+![License](https://img.shields.io/github/license/SynacNipo/Sacram)
 
 > [!WARNING]
 > **ALPHA — HTTP/HTTPS PROXY ONLY IS STABLE**
