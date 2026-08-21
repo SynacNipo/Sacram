@@ -44,12 +44,9 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val TAG = "SacramMain"
         val PROXY_TYPE_LABELS = listOf(
-            "Auto (default mode)",
-            "UDP / SOCKS5 [Experimental]",
-            "HTTP",
-            "Hybrid (SOCKS5 + HTTP) [Experimental]"
+            "Auto (SOCKS5 + HTTP)"
         )
-        val EXPERIMENTAL_TYPES = setOf(1, 3)
+        val EXPERIMENTAL_TYPES = emptySet<Int>()
         // Band picker. Index order MUST match BAND_VALUES.
         val BAND_LABELS = listOf("2.4 GHz (default)", "5 GHz", "Auto")
         val BAND_VALUES = listOf("2.4", "5", "auto")
@@ -303,7 +300,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun updatePortVisibility(proxyType: Int) {
         val showSocks = proxyType != 2
-        val showHttp = proxyType == 2 || proxyType == 3
+        val showHttp = proxyType == 0 || proxyType == 2 || proxyType == 3
         tilPort.visibility = if (showSocks) View.VISIBLE else View.GONE
         tilHttpPort.visibility = if (showHttp) View.VISIBLE else View.GONE
         (tilPort.layoutParams as LinearLayout.LayoutParams).weight = if (showSocks && !showHttp) 2f else 1f

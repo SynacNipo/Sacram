@@ -11,7 +11,7 @@ data class AppConfig(
     val band: String = "2.4",
     val disableBandSelector: Boolean = false,
     val proxyMode: String = "socks5",
-    val proxyType: Int = 0, // 0=unset (use proxyMode), 1=UDP/SOCKS5, 2=HTTP, 3=Hybrid (SOCKS5+HTTP)
+    val proxyType: Int = 0, // 0=Auto (SOCKS5+HTTP) [default], 1=SOCKS5, 2=HTTP, 3=Hybrid (SOCKS5+HTTP)
     val httpPort: Int = 8282,
     val telemetryPrompted: Boolean = false,
     val telemetryEnabled: Boolean = false,
@@ -27,12 +27,12 @@ data class AppConfig(
         return when (proxyType) {
             1 -> "socks5"
             2 -> "http"
-            3 -> "hybrid"
+            0, 3 -> "hybrid"   // 0 = Auto: run SOCKS5 + HTTP together, no manual pick
             else -> proxyMode
         }
     }
 
-    fun isHybrid(): Boolean = proxyType == 3
+    fun isHybrid(): Boolean = proxyType == 0 || proxyType == 3
 }
 
 object ConfigManager {
