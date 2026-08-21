@@ -64,7 +64,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etHttpPort: EditText
     private lateinit var etKeepaliveUrl: EditText
     private lateinit var etKeepaliveInterval: EditText
-    private lateinit var etWifiRestore: EditText
     private lateinit var chkRequireApprovalRestart: CheckBox
     private lateinit var chkDisableBandSelector: CheckBox
     private lateinit var tilPort: com.google.android.material.textfield.TextInputLayout
@@ -111,13 +110,11 @@ class MainActivity : AppCompatActivity() {
         etHttpPort.setText(config.httpPort.toString())
         etKeepaliveUrl = findViewById(R.id.etKeepaliveUrl)
         etKeepaliveInterval = findViewById(R.id.etKeepaliveInterval)
-        etWifiRestore = findViewById(R.id.etWifiRestore)
         chkRequireApprovalRestart = findViewById(R.id.chkRequireApprovalRestart)
         chkDisableBandSelector = findViewById(R.id.chkDisableBandSelector)
         tilBand = findViewById(R.id.tilBand)
         etKeepaliveUrl.setText(config.keepaliveUrl)
         etKeepaliveInterval.setText((config.keepaliveIntervalMs / 1000).toString())
-        etWifiRestore.setText(config.wifiAutorestoreMin.toString())
         chkRequireApprovalRestart.isChecked = config.requireApprovalRestart
         chkRequireApprovalRestart.setOnCheckedChangeListener { _, _ -> autosave() }
         chkDisableBandSelector.isChecked = config.disableBandSelector
@@ -235,7 +232,6 @@ class MainActivity : AppCompatActivity() {
         etHttpPort.addTextChangedListener(watcher)
         etKeepaliveUrl.addTextChangedListener(watcher)
         etKeepaliveInterval.addTextChangedListener(watcher)
-        etWifiRestore.addTextChangedListener(watcher)
     }
 
     private fun setupProxyTypeDropdown(selected: Int) {
@@ -407,12 +403,6 @@ class MainActivity : AppCompatActivity() {
             tvSaved.text = "Keep-alive interval must be >= 15s - not saved yet"
             return
         }
-        val wifiRestoreMin = etWifiRestore.text.toString().toIntOrNull()
-        if (wifiRestoreMin != null && wifiRestoreMin < 0) {
-            tvSaved.setTextColor(0xFFC62828.toInt())
-            tvSaved.text = "WiFi auto-restore minutes must be >= 0 - not saved yet"
-            return
-        }
         if (proxyType !in 0..3) {
             tvSaved.setTextColor(0xFFC62828.toInt())
             tvSaved.text = "Proxy type must be 0, 1, 2, or 3 - not saved yet"
@@ -430,7 +420,6 @@ class MainActivity : AppCompatActivity() {
                 httpPort = httpPort,
                 keepaliveUrl = keepaliveUrl,
                 keepaliveIntervalMs = (intervalSec ?: (prev.keepaliveIntervalMs / 1000)) * 1000L,
-                wifiAutorestoreMin = wifiRestoreMin ?: prev.wifiAutorestoreMin,
                 requireApprovalRestart = chkRequireApprovalRestart.isChecked,
                 disableBandSelector = chkDisableBandSelector.isChecked
             )

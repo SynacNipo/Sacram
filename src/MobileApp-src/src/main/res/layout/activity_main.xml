@@ -304,28 +304,6 @@
                     android:inputType="number" />
             </com.google.android.material.textfield.TextInputLayout>
 
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilWifiRestore"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:hint="Auto-restore WiFi after (minutes, 0 = off)">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etWifiRestore"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="number" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="If the WiFi radio turns off while the proxy runs, Sacram waits this many minutes then turns it back on and rebuilds the hotspot. Set 0 to disable. It does not distinguish who turned WiFi off - stopping the proxy also stops this."
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
-
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

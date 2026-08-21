@@ -873,7 +873,8 @@ class HttpProxyServer(
             append("\"goIp\":\"").append(escapeJson(info.goIp)).append("\",")
             append("\"clients\":").append(info.clients).append(',')
             append("\"tcpTunnels\":").append(AppState.tcpTunnels.value).append(',')
-            append("\"requireApprovalRestart\":").append(cfg.requireApprovalRestart)
+            append("\"requireApprovalRestart\":").append(cfg.requireApprovalRestart).append(',')
+            append("\"version\":\"").append(BuildConfig.VERSION_NAME).append("\"")
             append('}')
         }
         val bytes = json.toByteArray(Charsets.UTF_8)
@@ -1002,6 +1003,7 @@ class HttpProxyServer(
             <div class="row"><span class="k">Group IP</span><span class="v" id="v-goip">${escapeHtml(info.goIp)}</span></div>
             <div class="row"><span class="k">Clients</span><span class="v" id="v-clients">${info.clients}</span></div>
             <div class="row"><span class="k">TCP tunnels open</span><span class="v" id="v-tunnels">${AppState.tcpTunnels.value}</span></div>
+            <div class="row"><span class="k">Version</span><span class="v" id="v-ver">${BuildConfig.VERSION_NAME}</span></div>
         </div>
         <form method="post" action="/restart">
             <div class="card">
@@ -1015,8 +1017,6 @@ class HttpProxyServer(
                 <input type="text" name="keepalive_url" value="${escapeHtml(cfg.keepaliveUrl)}">
                 <label>Keep-alive interval (seconds, min 15)</label>
                 <input type="number" name="keepalive_interval" value="${cfg.keepaliveIntervalMs / 1000}" min="15">
-                <label>Auto-restore WiFi after (minutes, 0 = off)</label>
-                <input type="number" name="wifi_autorestore_min" value="${cfg.wifiAutorestoreMin}" min="0">
                 <div class="checkbox"><input type="checkbox" name="telemetry_enabled" value="on" $telChecked><span>Telemetry enabled</span></div>
                 <div class="checkbox"><input type="checkbox" name="panel_enabled" value="on" $panelChecked><span>Control panel enabled</span></div>
                 <label>WiFi Band</label>
@@ -1039,6 +1039,7 @@ class HttpProxyServer(
             set('v-status',d.status);set('v-running',d.running);set('v-uptime',d.uptime);
             set('v-mode',d.mode);set('v-ssid',d.ssid);set('v-pass',d.passphrase);
             set('v-goip',d.goIp);set('v-clients',d.clients);set('v-tunnels',d.tcpTunnels);
+            set('v-ver',d.version);
           }catch(e){}
         }
         sacramRefresh();

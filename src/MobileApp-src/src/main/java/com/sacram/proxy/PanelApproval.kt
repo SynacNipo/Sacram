@@ -66,8 +66,6 @@ object PanelApproval {
                 ?: prev.keepaliveUrl,
             keepaliveIntervalMs = (fields["keepalive_interval"]?.toLongOrNull()?.coerceAtLeast(15)
                 ?: (prev.keepaliveIntervalMs / 1000)) * 1000L,
-            wifiAutorestoreMin = fields["wifi_autorestore_min"]?.toIntOrNull()?.coerceAtLeast(0)
-                ?: prev.wifiAutorestoreMin,
             telemetryEnabled = fields["telemetry_enabled"] == "on",
             panelEnabled = fields["panel_enabled"] != "off",
             band = fields["band"]?.trim()?.takeIf { it in setOf("2.4", "5", "auto") }
