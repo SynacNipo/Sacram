@@ -79,7 +79,6 @@ jobs:
 
       - name: Generate AI release notes (OpenRouter, free)
         id: ainotes
-        if: ${{ secrets.OPENROUTER_API_KEY != '' }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GH_TOKEN: ${{ github.token }}
