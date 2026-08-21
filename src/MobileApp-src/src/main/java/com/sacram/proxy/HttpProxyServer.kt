@@ -6,7 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -24,6 +24,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -42,7 +43,14 @@ class HttpProxyServer(
     private val onStaleDetected: () -> Unit = {}
 ) {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Dedicated worker pool. DNS resolution and TCP connect() are blocking, and
+    // a busy page opens dozens of parallel connections. On the shared
+    // Dispatchers.IO (capped at ~64 threads) those blocks would queue, so a
+    // request kicked off right after closing a heavy tab would wait for a free
+    // thread -> the whole proxy "hangs for a few seconds". A private pool lets
+    // many connections establish concurrently so the proxy keeps responding.
+    private val workerExecutor = Executors.newFixedThreadPool(256)
+    private val scope = CoroutineScope(SupervisorJob() + workerExecutor.asCoroutineDispatcher())
     private val running = AtomicBoolean(true)
     private var serverSocket: ServerSocket? = null
     private var tcpJob: Job? = null
@@ -104,9 +112,9 @@ class HttpProxyServer(
     private var staleWatchdogJob: Job? = null
     private val STALE_TIMEOUT_MS = 2 * 60_000L
     private val dnsTtlMs = 60_000L
-    private val poolMax = 16
+    private val poolMax = 48
     private val poolIdleMs = 60_000L
-    private val connectTimeoutMs = 10_000
+    private val connectTimeoutMs = 6_000
     private val readTimeoutMs = 20_000
     // Socket buffer sizes. Cellular (the egress path) is high-latency, so the
     // bandwidth-delay product is large; the platform-default receive/send
@@ -201,6 +209,7 @@ class HttpProxyServer(
         }
         tcpJob?.cancel()
         scope.cancel()
+        runCatching { workerExecutor.shutdownNow() }
     }
 
     private fun tuneSocket(sock: Socket) {

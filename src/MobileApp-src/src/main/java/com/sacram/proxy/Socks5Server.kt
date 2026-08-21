@@ -6,7 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -26,6 +26,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -39,7 +40,11 @@ class Socks5Server(
     private val onLog: (String) -> Unit = {}
 ) {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Dedicated worker pool so many parallel TCP CONNECT establishments don't
+    // queue behind the shared Dispatchers.IO cap and stall the whole proxy.
+    private val workerExecutor = Executors.newFixedThreadPool(256)
+    private val proxyDispatcher = workerExecutor.asCoroutineDispatcher()
+    private val scope = CoroutineScope(SupervisorJob() + proxyDispatcher)
     private val running = AtomicBoolean(true)
     private var serverSocket: ServerSocket? = null
     private var udpSocket: DatagramSocket? = null
@@ -121,6 +126,7 @@ class Socks5Server(
         udpJob?.cancel()
         udpSweepJob?.cancel()
         scope.cancel()
+        runCatching { workerExecutor.shutdownNow() }
     }
 
     private suspend fun runTcpServer() {
@@ -275,10 +281,10 @@ class Socks5Server(
         AppState.tcpTunnels.value = tunnelCount.get()
         try {
             val net = pickNet()
-            val resolved = withContext(Dispatchers.IO) { resolve(target, net) }
+            val resolved = withContext(proxyDispatcher) { resolve(target, net) }
             val up = Socket()
             net?.bindSocket(up)
-            up.connect(InetSocketAddress(resolved, targetPort), 15000)
+            up.connect(InetSocketAddress(resolved, targetPort), 8000)
             up.tcpNoDelay = true
             up.soTimeout = tunnelIdleTimeoutMs
             upstream = up
