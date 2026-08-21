@@ -1,7 +1,14 @@
 package com.sacram.proxy
 
+import android.content.ContentValues
 import android.content.Context
+import android.content.ContentUris
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import java.io.File
+import java.io.FileOutputStream
 import java.util.Properties
 
 data class AppConfig(
@@ -56,12 +63,9 @@ object ConfigManager {
     }
 
     fun ensureConfig(context: Context): AppConfig {
-        val internal = internalConfigFile(context)
-        if (!internal.exists()) {
-            save(context, defaultConfig)
-        }
+        val cfg = load(context)
         mirrorToExternal(context)
-        return load(context)
+        return cfg
     }
 
     fun mirrorToExternal(context: Context) {
@@ -73,6 +77,54 @@ object ConfigManager {
         }
     }
 
+    /**
+     * A copy of the config kept in the public Documents folder (NOT in any
+     * app-specific directory) so it survives app uninstall/reinstall. Android
+     * wipes getFilesDir()/getExternalFilesDir() on uninstall, which is why the
+     * previous config was lost. We mirror here via MediaStore (no extra
+     * permission needed on API 29+) and restore from it on first launch after a
+     * reinstall. Pre-API 29 is skipped (scoped-storage/permission constraints).
+     */
+    private fun globalConfigUri(context: Context): Uri? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val resolver = context.contentResolver
+        val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val relative = Environment.DIRECTORY_DOCUMENTS + "/Sacram/"
+        val projection = arrayOf(MediaStore.Files.FileColumns._ID)
+        val selection =
+            "${MediaStore.Files.FileColumns.RELATIVE_PATH} = ? AND " +
+                "${MediaStore.Files.FileColumns.DISPLAY_NAME} = ?"
+        val args = arrayOf(relative, FILE_NAME)
+        resolver.query(collection, projection, selection, args, null)?.use { c ->
+            if (c.moveToFirst()) {
+                val id = c.getLong(c.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID))
+                return ContentUris.withAppendedId(collection, id)
+            }
+        }
+        val values = ContentValues().apply {
+            put(MediaStore.Files.FileColumns.DISPLAY_NAME, FILE_NAME)
+            put(MediaStore.Files.FileColumns.MIME_TYPE, "text/plain")
+            put(MediaStore.Files.FileColumns.RELATIVE_PATH, relative)
+        }
+        return resolver.insert(collection, values)
+    }
+
+    private fun readGlobalConfig(context: Context): String? {
+        val uri = globalConfigUri(context) ?: return null
+        return runCatching {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        }.getOrNull()
+    }
+
+    private fun writeGlobalConfig(context: Context, text: String) {
+        val uri = globalConfigUri(context) ?: return
+        runCatching {
+            context.contentResolver.openFileDescriptor(uri, "wt")?.use { pfd ->
+                FileOutputStream(pfd.fileDescriptor).use { it.write(text.toByteArray()) }
+            }
+        }
+    }
+
     fun load(context: Context): AppConfig {
         val internal = internalConfigFile(context)
         val external = externalConfigFile(context)
@@ -80,6 +132,12 @@ object ConfigManager {
             internal.exists() -> internal
             external.exists() -> external
             else -> {
+                val g = readGlobalConfig(context)
+                if (g != null) {
+                    internal.writeText(g)
+                    mirrorToExternal(context)
+                    return parse(internal)
+                }
                 save(context, defaultConfig)
                 return defaultConfig
             }
@@ -147,7 +205,9 @@ object ConfigManager {
             "panel_enabled=${config.panelEnabled}",
             "require_approval_restart=${config.requireApprovalRestart}"
         )
-        file.writeText(lines.joinToString("\n") + "\n")
+        val text = lines.joinToString("\n") + "\n"
+        file.writeText(text)
         mirrorToExternal(context)
+        writeGlobalConfig(context, text)
     }
 }
