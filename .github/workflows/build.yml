@@ -79,11 +79,16 @@ jobs:
           done
           echo "tag=$next" >> "$GITHUB_OUTPUT"
 
-      - name: Build debug APK
-        run: cd src/gradle-stuff && ./gradlew assembleDebug --no-daemon -PappVersion="${{ steps.tag.outputs.tag }}"
+      - name: Build release APK
+        env:
+          SACRAM_KEYSTORE_BASE64: ${{ secrets.SACRAM_KEYSTORE_BASE64 }}
+          SACRAM_KEY_ALIAS: ${{ secrets.SACRAM_KEY_ALIAS }}
+          SACRAM_STORE_PASSWORD: ${{ secrets.SACRAM_STORE_PASSWORD }}
+          SACRAM_KEY_PASSWORD: ${{ secrets.SACRAM_KEY_PASSWORD }}
+        run: cd src/gradle-stuff && ./gradlew assembleRelease --no-daemon -PappVersion="${{ steps.tag.outputs.tag }}"
 
       - name: Rename APK to sacram.apk
-        run: cp src/MobileApp-src/build/outputs/apk/debug/app-debug.apk src/MobileApp-src/build/outputs/apk/debug/sacram.apk
+        run: cp src/MobileApp-src/build/outputs/apk/release/app-release.apk src/MobileApp-src/build/outputs/apk/release/sacram.apk
 
       - name: Publish release (auto-incremented tag)
         if: needs.gate.outputs.publish == 'true'
@@ -91,7 +96,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ steps.tag.outputs.tag }}" \
-            src/MobileApp-src/build/outputs/apk/debug/sacram.apk \
+            src/MobileApp-src/build/outputs/apk/release/sacram.apk \
             --title "${{ steps.tag.outputs.tag }}" \
             --notes "Automatic build from commit ${{ github.sha }}"
 
@@ -99,5 +104,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sacram-udp-bridge-apk
-          path: src/MobileApp-src/build/outputs/apk/debug/sacram.apk
+          path: src/MobileApp-src/build/outputs/apk/release/sacram.apk
           retention-days: 14

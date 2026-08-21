@@ -18,10 +18,33 @@ android {
         versionName = appVersion
     }
 
+    signingConfigs {
+        // Fixed release key so every CI build shares one signature and updates
+        // install in place (no more "package conflicts with an existing package").
+        // Keystore is supplied via CI secrets; locally the env vars are absent
+        // and the default debug key is used instead, which is fine for dev.
+        create("ci") {
+            val b64 = System.getenv("SACRAM_KEYSTORE_BASE64")
+            if (b64 != null) {
+                val keyFile = File(project.rootDir, "sacram-release-key.jks")
+                if (!keyFile.exists()) {
+                    keyFile.writeBytes(java.util.Base64.getDecoder().decode(b64))
+                }
+                storeFile = keyFile
+                storePassword = System.getenv("SACRAM_STORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("SACRAM_KEY_ALIAS") ?: ""
+                keyPassword = System.getenv("SACRAM_KEY_PASSWORD") ?: ""
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (System.getenv("SACRAM_KEYSTORE_BASE64") != null) {
+                signingConfig = signingConfigs.getByName("ci")
+            }
         }
     }
     buildFeatures {

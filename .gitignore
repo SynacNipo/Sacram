@@ -16,3 +16,7 @@ WORKFLOW.md
 
 # Wiki is a separate repo; don't track it here
 Sacram.wiki/
+
+# Local signing keystore (secret is in CI; never commit the key)
+*.jks
+sacram-release-key.jks
