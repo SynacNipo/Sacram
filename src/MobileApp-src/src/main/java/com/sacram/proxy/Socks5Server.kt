@@ -62,7 +62,7 @@ class Socks5Server(
     // Live count of open TCP CONNECT tunnels, surfaced via AppState.
     private val tunnelCount = AtomicInteger(0)
 
-    private val dnsCache = ConcurrentHashMap<String, Pair<InetAddress, Long>>()
+    private val dnsCache = ConcurrentHashMap<String, Pair<List<InetAddress>, Long>>()
     private val dnsTtlMs = 60_000L
     private var cachedNet: Network? = null
     private var cachedNetTime = 0L
@@ -215,21 +215,23 @@ class Socks5Server(
         }
     }
 
-    private fun resolve(host: String, net: Network?): InetAddress {
+    private fun resolve(host: String, net: Network?): List<InetAddress> {
         // Resolve on the same network the upstream socket is bound to. The default
-        // resolver would query the WiFi Direct interface (no DNS/internet) when the
+        // resolver would query the WiFi-Direct interface (no DNS/internet) when the
         // phone is the group owner, so the connection would fail to resolve the host.
         val now = System.currentTimeMillis()
         val cached = dnsCache[host]
         if (cached != null && cached.second > now) return cached.first
         // Resolve ONLY on the egress network the socket will be bound to. The
         // default resolver would query the WiFi-Direct interface (no DNS/internet)
-        // when the phone is the Group Owner, producing an unreachable address.
-        val addrs = net?.getAllByName(host)
-        val addr = addrs?.firstOrNull()
-            ?: throw IOException("DNS resolution failed for $host on egress network $net")
-        dnsCache[host] = addr to (now + dnsTtlMs)
-        return addr
+        // when the Group Owner, producing an unreachable address.
+        val addrs = net?.getAllByName(host)?.toList().orEmpty()
+        if (addrs.isEmpty()) throw IOException("DNS resolution failed for $host on egress network $net")
+        // Try IPv4 first: carriers often have broken/blackholed IPv6 egress, so the
+        // first (IPv6) address can hang. Prefer IPv4 to avoid multi-second stalls.
+        val ordered = addrs.filter { it.address.size == 4 } + addrs.filter { it.address.size != 4 }
+        dnsCache[host] = ordered to (now + dnsTtlMs)
+        return ordered
     }
 
     /**
@@ -281,12 +283,24 @@ class Socks5Server(
         AppState.tcpTunnels.value = tunnelCount.get()
         try {
             val net = pickNet()
-            val resolved = withContext(proxyDispatcher) { resolve(target, net) }
-            val up = Socket()
-            net?.bindSocket(up)
-            up.connect(InetSocketAddress(resolved, targetPort), 8000)
-            up.tcpNoDelay = true
-            up.soTimeout = tunnelIdleTimeoutMs
+            val addrs = withContext(proxyDispatcher) { resolve(target, net) }
+            var up: Socket? = null
+            var lastErr: String? = null
+            for (a in addrs) {
+                val sock = Socket()
+                try {
+                    net?.bindSocket(sock)
+                    sock.connect(InetSocketAddress(a, targetPort), 8000)
+                    sock.tcpNoDelay = true
+                    sock.soTimeout = tunnelIdleTimeoutMs
+                    up = sock
+                    break
+                } catch (e: Exception) {
+                    runCatching { sock.close() }
+                    lastErr = e.message
+                }
+            }
+            if (up == null) throw IOException("could not connect to $target:$targetPort via $net : $lastErr")
             upstream = up
             replySuccess(output)
             onLog("TCP $target:$targetPort")

@@ -97,7 +97,7 @@ class HttpProxyServer(
         return n
     }
 
-    private val dnsCache = ConcurrentHashMap<String, Pair<InetAddress, Long>>()
+    private val dnsCache = ConcurrentHashMap<String, Pair<List<InetAddress>, Long>>()
     private val connPool = ConcurrentHashMap<String, MutableList<Pair<Socket, Long>>>()
     // Per-request telemetry sampler: we never log full URLs, only the host
     // (domain) and HTTP status, and we sample successes heavily so a busy
@@ -476,7 +476,7 @@ class HttpProxyServer(
         }
     }
 
-    private fun resolve(host: String, net: Network?): InetAddress {
+    private fun resolve(host: String, net: Network?): List<InetAddress> {
         val now = System.currentTimeMillis()
         val cached = dnsCache[host]
         if (cached != null && cached.second > now) return cached.first
@@ -488,11 +488,15 @@ class HttpProxyServer(
         // for still resolves. The system default route points at the phone's real
         // internet path (cellular / station WiFi), never the WiFi-Direct interface,
         // which has no DNS server of its own - so this is safe.
-        val addrs = if (net != null) net.getAllByName(host) else InetAddress.getAllByName(host)
-        val addr = addrs?.firstOrNull()
-            ?: throw IOException("DNS resolution failed for $host on egress network $net")
-        dnsCache[host] = addr to (now + dnsTtlMs)
-        return addr
+        val addrs = (if (net != null) net.getAllByName(host) else InetAddress.getAllByName(host))
+            ?.toList().orEmpty()
+        if (addrs.isEmpty()) throw IOException("DNS resolution failed for $host on egress network $net")
+        // Try IPv4 first. Many mobile carriers have broken/blackholed IPv6 egress,
+        // so connecting to the first (often IPv6) address hangs for the full
+        // timeout and then caches the dead address. Prefer IPv4 to avoid that.
+        val ordered = addrs.filter { it.address.size == 4 } + addrs.filter { it.address.size != 4 }
+        dnsCache[host] = ordered to (now + dnsTtlMs)
+        return ordered
     }
 
     /**
@@ -504,8 +508,14 @@ class HttpProxyServer(
      * ConnectivityManager Network APIs transiently report no usable egress.
      */
     private fun dial(host: String, port: Int, net: Network?): Socket? {
-        return try {
-            val addr = resolve(host, net)
+        val addrs = try {
+            resolve(host, net)
+        } catch (e: Exception) {
+            onLog("HTTP DNS failed for $host via $net : ${e.message}")
+            return null
+        }
+        var lastErr: String? = null
+        for (addr in addrs) {
             val up = Socket()
             try {
                 net?.bindSocket(up)
@@ -513,16 +523,14 @@ class HttpProxyServer(
                 up.tcpNoDelay = true
                 tuneSocket(up)
                 up.connect(InetSocketAddress(addr, port), connectTimeoutMs)
-                up
+                return up
             } catch (e: Exception) {
                 runCatching { up.close() }
-                onLog("HTTP upstream connect failed: $host:$port -> $addr via $net : ${e.message}")
-                null
+                lastErr = e.message
             }
-        } catch (e: Exception) {
-            onLog("HTTP DNS failed for $host via $net : ${e.message}")
-            null
         }
+        onLog("HTTP upstream connect failed: $host:$port -> $addrs via $net : $lastErr")
+        return null
     }
 
     private fun acquireUpstream(host: String, port: Int, forceFresh: Boolean = false): Socket {
