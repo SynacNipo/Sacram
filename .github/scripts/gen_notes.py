@@ -12,8 +12,14 @@ import sys
 import urllib.request
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-# Free model - no cost. Swap for any other :free model if you prefer.
-MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+# Free models, tried in order. OpenRouter rotates its free lineup, so having
+# several means a removal of one doesn't break release notes (we just try the next).
+MODELS = [
+    "google/gemma-4-31b-it:free",
+    "openai/gpt-oss-20b:free",
+    "z-ai/glm-5.2:free",
+    "nvidia/nemotron-nano-9b-v2:free",
+]
 
 
 def main() -> None:
@@ -38,32 +44,38 @@ def main() -> None:
         f"COMMITS:\n{commits}"
     )
 
-    payload = {
-        "model": MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 700,
-        "temperature": 0.2,
-    }
-    req = urllib.request.Request(
-        OPENROUTER_URL,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/SynacNipo/Sacram",
-            "X-Title": "Sacram",
-        },
-        method="POST",
-    )
+    last_err = None
+    for model in MODELS:
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 700,
+            "temperature": 0.2,
+        }
+        req = urllib.request.Request(
+            OPENROUTER_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://github.com/SynacNipo/Sacram",
+                "X-Title": "Sacram",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.load(resp)
+            text = data["choices"][0]["message"]["content"].strip()
+            if text:
+                print(text)
+                return
+        except Exception as e:  # noqa: BLE001 - try next model
+            last_err = e
+            sys.stderr.write(f"model {model} failed: {e}\n")
 
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.load(resp)
-        text = data["choices"][0]["message"]["content"].strip()
-        if text:
-            print(text)
-    except Exception as e:  # noqa: BLE001 - any failure => fall back to plain notes
-        sys.stderr.write(f"AI release notes failed: {e}\n")
+    if last_err is not None:
+        sys.stderr.write(f"AI release notes failed: {last_err}\n")
 
 
 if __name__ == "__main__":
