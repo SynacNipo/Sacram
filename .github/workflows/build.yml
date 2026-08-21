@@ -90,15 +90,25 @@ jobs:
       - name: Rename APK to sacram.apk
         run: cp src/MobileApp-src/build/outputs/apk/release/app-release.apk src/MobileApp-src/build/outputs/apk/release/sacram.apk
 
+      - name: Compute SHA256 checksum
+        id: sha
+        run: |
+          cd src/MobileApp-src/build/outputs/apk/release
+          HASH=$(sha256sum sacram.apk | awk '{print $1}')
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "$HASH  sacram.apk" > sacram.apk.sha256
+
       - name: Publish release (auto-incremented tag)
         if: needs.gate.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          SHA256: ${{ steps.sha.outputs.hash }}
         run: |
           gh release create "${{ steps.tag.outputs.tag }}" \
             src/MobileApp-src/build/outputs/apk/release/sacram.apk \
+            src/MobileApp-src/build/outputs/apk/release/sacram.apk.sha256 \
             --title "${{ steps.tag.outputs.tag }}" \
-            --notes "Automatic build from commit ${{ github.sha }}"
+            --notes "Automatic build from commit ${{ github.sha }} | SHA256: $SHA256"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

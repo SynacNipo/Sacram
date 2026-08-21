@@ -72,14 +72,24 @@ jobs:
       - name: Rename APK to sacram.apk
         run: cp src/MobileApp-src/build/outputs/apk/release/app-release.apk src/MobileApp-src/build/outputs/apk/release/sacram.apk
 
+      - name: Compute SHA256 checksum
+        id: sha
+        run: |
+          cd src/MobileApp-src/build/outputs/apk/release
+          HASH=$(sha256sum sacram.apk | awk '{print $1}')
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "$HASH  sacram.apk" > sacram.apk.sha256
+
       - name: Publish nightly pre-release
         env:
           GH_TOKEN: ${{ github.token }}
+          SHA256: ${{ steps.sha.outputs.hash }}
         run: |
           gh release create "${{ steps.tag.outputs.tag }}" \
             src/MobileApp-src/build/outputs/apk/release/sacram.apk \
+            src/MobileApp-src/build/outputs/apk/release/sacram.apk.sha256 \
             --title "${{ steps.tag.outputs.version }} - Nightly Build" \
-            --notes "Automatic nightly build from commit ${{ github.sha }}" \
+            --notes "Automatic nightly build from commit ${{ github.sha }} | SHA256: $SHA256" \
             --prerelease
 
       - name: Upload APK
