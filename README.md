@@ -22,20 +22,19 @@
 ![Top language](https://img.shields.io/github/languages/top/SynacNipo/Sacram)
 ![License](https://img.shields.io/github/license/SynacNipo/Sacram)
 
-> [!WARNING]
-> **ALPHA — HTTP/HTTPS PROXY ONLY IS STABLE**
+> [!NOTE]
+> **STABLE**
 >
-> This project is in **early alpha**. Expect breaking changes and bugs in the
-> UDP + TUN path. The **HTTP/HTTPS (TCP) proxy over WiFi Direct is confirmed
-> stable** — the PC reliably reaches the internet through the phone's HTTP
-> proxy. UDP + TUN support is still being debugged. Do not rely on anything
-> beyond the HTTP/HTTPS proxy for anything real yet.
+> Sacram is **stable** for its core use case: a systemwide TCP+UDP proxy over a
+> WiFi Direct hotspot. The Android app, HTTP (TCP) and SOCKS5 (TCP) proxies are
+> validated. The Windows/Sing-box TUN client is still being refined — verify
+> end-to-end on your setup before relying on it for anything critical.
 
 ## Status
 
 | Component        | Status        | Notes                                                              |
 |------------------|---------------|--------------------------------------------------------------------|
-| Android app      | Alpha         | Auto mode (HTTP+SOCKS5 TCP) validated over WiFi Direct; UDP/TUN still alpha |
+| Android app      | Stable        | Auto mode (HTTP+SOCKS5 TCP) validated over WiFi Direct; SOCKS5 UDP paused |
 | Connectivity     | Working (TCP) | PC reaches the internet via the phone proxy over WiFi Direct       |
 | Windows client   | Alpha         | `SacramConnect.bat` (sing-box TUN) launches; DNS/routing handled by sing-box TUN (verify end-to-end) |
 | HTTP (TCP) proxy | Working       | Plain HTTP + CONNECT tunnels, full-duplex                          |
