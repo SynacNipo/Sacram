@@ -68,7 +68,9 @@ object Telemetry {
                     while (true) {
                         delay(FLUSH_MS)
                         flush(ctx)
-                        synchronized(buffer) { if (buffer.isEmpty()) break }
+                        val empty: Boolean
+                        synchronized(buffer) { empty = buffer.isEmpty() }
+                        if (empty) break
                     }
                 } finally {
                     flusherRunning.set(false)
