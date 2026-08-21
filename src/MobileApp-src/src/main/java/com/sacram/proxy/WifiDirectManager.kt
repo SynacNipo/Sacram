@@ -104,7 +104,7 @@ class WifiDirectManager(private val context: Context) {
         }
     }
 
-    fun createGroup(ssid: String, password: String, onResult: (Boolean, String) -> Unit) {
+    fun createGroup(ssid: String, password: String, band: String = "2.4", onResult: (Boolean, String) -> Unit) {
         val listener = object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
                 onResult(true, "Group created")
@@ -127,6 +127,13 @@ class WifiDirectManager(private val context: Context) {
                     .setNetworkName(normalizeSsid(ssid))
                     .setPassphrase(password)
                     .build()
+                // Android's public WifiP2pConfig.Builder has no band method, but
+                // the WifiP2pConfig object carries a hidden `groupOwnerBand` field
+                // (0=AUTO, 1=2GHz, 2=5GHz). Set it via reflection so the Group
+                // Owner (our hotspot) comes up on the chosen band where supported.
+                // Best-effort: if the field/device doesn't honour it, the group
+                // just forms on whatever band the firmware picks - never fatal.
+                applyGroupOwnerBand(config, band)
                 manager.createGroup(channel, config, listener)
                 return
             } catch (e: Exception) {
@@ -134,6 +141,26 @@ class WifiDirectManager(private val context: Context) {
             }
         }
         manager.createGroup(channel, listener)
+    }
+
+    /**
+     * Maps our [band] string ("2.4" / "5" / "auto") onto the hidden
+     * WifiP2pConfig.groupOwnerBand field. Reflective because the constant and
+     * field are @hide in the public SDK.
+     */
+    private fun applyGroupOwnerBand(config: WifiP2pConfig, band: String) {
+        val constValue = when (band) {
+            "5" -> 2   // GROUP_OWNER_BAND_5GHZ
+            "2.4" -> 1 // GROUP_OWNER_BAND_2GHZ
+            else -> 0  // GROUP_OWNER_BAND_AUTO
+        }
+        if (constValue == 0) return
+        try {
+            val field = WifiP2pConfig::class.java.getField("groupOwnerBand")
+            field.setInt(config, constValue)
+        } catch (_: Exception) {
+            // Field absent on this Android version/device - ignore, band stays AUTO.
+        }
     }
 
     fun removeGroup(onDone: () -> Unit = {}) {

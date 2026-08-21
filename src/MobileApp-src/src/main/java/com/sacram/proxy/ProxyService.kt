@@ -137,10 +137,10 @@ class ProxyService : Service() {
             var createOk = false
             var createMsg = ""
             p2p.removeExistingGroup {
-                p2p.createGroup(config.ssid, config.password) { ok, msg ->
+                p2p.createGroup(config.ssid, config.password, config.band) { ok, msg ->
                     createOk = ok
                     createMsg = msg
-                    Log.i(TAG, "createGroup result ok=$ok msg=$msg")
+                    Log.i(TAG, "createGroup result ok=$ok msg=$msg band=${config.band}")
                 }
             }
             var waited = 0
@@ -350,8 +350,8 @@ class ProxyService : Service() {
     private suspend fun recreateGroup(p2p: WifiDirectManager, config: AppConfig) {
         if (!started.get()) return
         p2p.removeExistingGroup {
-            p2p.createGroup(config.ssid, config.password) { ok, msg ->
-                Log.i(TAG, "recreateGroup createGroup ok=$ok msg=$msg")
+            p2p.createGroup(config.ssid, config.password, config.band) { ok, msg ->
+                Log.i(TAG, "recreateGroup createGroup ok=$ok msg=$msg band=${config.band}")
             }
         }
         var formed = false

@@ -69,7 +69,9 @@ object PanelApproval {
             wifiAutorestoreMin = fields["wifi_autorestore_min"]?.toIntOrNull()?.coerceAtLeast(0)
                 ?: prev.wifiAutorestoreMin,
             telemetryEnabled = fields["telemetry_enabled"] == "on",
-            panelEnabled = fields["panel_enabled"] != "off"
+            panelEnabled = fields["panel_enabled"] != "off",
+            band = fields["band"]?.trim()?.takeIf { it in setOf("2.4", "5", "auto") }
+                ?: prev.band
         )
         ConfigManager.save(context, newCfg)
     }

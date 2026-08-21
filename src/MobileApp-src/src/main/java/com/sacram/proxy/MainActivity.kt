@@ -50,6 +50,9 @@ class MainActivity : AppCompatActivity() {
             "Hybrid (SOCKS5 + HTTP) [Experimental]"
         )
         val EXPERIMENTAL_TYPES = setOf(1, 3)
+        // Band picker. Index order MUST match BAND_VALUES.
+        val BAND_LABELS = listOf("2.4 GHz (default)", "5 GHz", "Auto")
+        val BAND_VALUES = listOf("2.4", "5", "auto")
     }
 
     private lateinit var tvStatus: TextView
@@ -58,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnToggle: Button
     private lateinit var etSsid: EditText
     private lateinit var etPass: EditText
+    private lateinit var etBand: AutoCompleteTextView
     private lateinit var etPort: EditText
     private lateinit var etProxyType: AutoCompleteTextView
     private lateinit var etHttpPort: EditText
@@ -96,6 +100,7 @@ class MainActivity : AppCompatActivity() {
         btnToggle = findViewById(R.id.btnToggle)
         etSsid = findViewById(R.id.etSsid)
         etPass = findViewById(R.id.etPass)
+        etBand = findViewById(R.id.etBand)
         etPort = findViewById(R.id.etPort)
         etProxyType = findViewById(R.id.etProxyType)
         etHttpPort = findViewById(R.id.etHttpPort)
@@ -118,6 +123,7 @@ class MainActivity : AppCompatActivity() {
         tilHttpPort = findViewById(R.id.tilHttpPort)
         setupProxyTypeDropdown(config.proxyType)
         updatePortVisibility(config.proxyType)
+        setupBandDropdown(config.band)
         findViewById<TextView>(R.id.tvConfigPath).text =
             "config.txt: ${ConfigManager.externalConfigFile(this).absolutePath}"
 
@@ -210,6 +216,14 @@ class MainActivity : AppCompatActivity() {
         }
         etSsid.addTextChangedListener(watcher)
         etPass.addTextChangedListener(watcher)
+        etBand.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                saveHandler.removeCallbacks(autosaveRunnable)
+                saveHandler.postDelayed(autosaveRunnable, 1200)
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
         etPort.addTextChangedListener(watcher)
         etHttpPort.addTextChangedListener(watcher)
         etKeepaliveUrl.addTextChangedListener(watcher)
@@ -249,6 +263,17 @@ class MainActivity : AppCompatActivity() {
             if (position in EXPERIMENTAL_TYPES) 0xFFC62828.toInt()
             else ContextCompat.getColor(this, R.color.text_primary)
         )
+    }
+
+    private fun setupBandDropdown(selected: String) {
+        val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, BAND_LABELS)
+        etBand.setAdapter(adapter)
+        val idx = BAND_VALUES.indexOf(selected).let { if (it < 0) 0 else it }
+        etBand.setText(BAND_LABELS[idx], false)
+        etBand.setOnItemClickListener { _, _, position, _ ->
+            etBand.setText(BAND_LABELS[position], false)
+            autosave()
+        }
     }
 
     /**
@@ -343,6 +368,7 @@ class MainActivity : AppCompatActivity() {
         val proxyType = PROXY_TYPE_LABELS.indexOf(etProxyType.text.toString()).let {
             if (it < 0) 0 else it
         }
+        val band = BAND_VALUES.getOrElse(BAND_LABELS.indexOf(etBand.text.toString())) { "2.4" }
         if (pass.length !in 8..63) {
             tvSaved.setTextColor(0xFFC62828.toInt())
             tvSaved.text = "Password must be 8-63 characters - not saved yet"
@@ -383,6 +409,7 @@ class MainActivity : AppCompatActivity() {
                 ssid = ssid.ifEmpty { ConfigManager.defaultConfig.ssid },
                 password = pass,
                 port = port,
+                band = band,
                 proxyType = proxyType,
                 httpPort = httpPort,
                 keepaliveUrl = keepaliveUrl,

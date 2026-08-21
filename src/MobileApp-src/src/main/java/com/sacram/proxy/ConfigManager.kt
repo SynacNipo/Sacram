@@ -8,6 +8,7 @@ data class AppConfig(
     val ssid: String,
     val password: String,
     val port: Int,
+    val band: String = "2.4",
     val proxyMode: String = "socks5",
     val proxyType: Int = 0, // 0=unset (use proxyMode), 1=UDP/SOCKS5, 2=HTTP, 3=Hybrid (SOCKS5+HTTP)
     val httpPort: Int = 8282,
@@ -93,6 +94,9 @@ object ConfigManager {
                 ssid = p.getProperty("ssid", defaultConfig.ssid),
                 password = p.getProperty("password", defaultConfig.password),
                 port = p.getProperty("port", defaultConfig.port.toString()).toIntOrNull() ?: defaultConfig.port,
+                band = p.getProperty("band", defaultConfig.band)
+                    .ifBlank { defaultConfig.band }
+                    .let { if (it in setOf("2.4", "5", "auto")) it else defaultConfig.band },
                 proxyMode = p.getProperty("proxy_mode", defaultConfig.proxyMode)
                     .ifBlank { defaultConfig.proxyMode },
                 proxyType = p.getProperty("proxy_type", "0").toIntOrNull() ?: 0,
@@ -126,6 +130,7 @@ object ConfigManager {
             "ssid=${config.ssid}",
             "password=${config.password}",
             "port=${config.port}",
+            "band=${config.band}",
             "proxy_mode=${config.proxyMode}",
             "proxy_type=${config.proxyType}",
             "http_port=${config.httpPort}",

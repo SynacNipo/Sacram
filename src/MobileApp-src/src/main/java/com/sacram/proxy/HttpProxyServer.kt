@@ -992,6 +992,12 @@ class HttpProxyServer(
                 <input type="number" name="wifi_autorestore_min" value="${cfg.wifiAutorestoreMin}" min="0">
                 <div class="checkbox"><input type="checkbox" name="telemetry_enabled" value="on" $telChecked><span>Telemetry enabled</span></div>
                 <div class="checkbox"><input type="checkbox" name="panel_enabled" value="on" $panelChecked><span>Control panel enabled</span></div>
+                <label>WiFi Band</label>
+                <select name="band" style="width:100%;padding:9px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:14px">
+                    <option value="2.4"${if (cfg.band == "2.4") " selected" else ""}>2.4 GHz (default)</option>
+                    <option value="5"${if (cfg.band == "5") " selected" else ""}>5 GHz</option>
+                    <option value="auto"${if (cfg.band == "auto") " selected" else ""}>Auto</option>
+                </select>
                 <button type="submit">Save settings</button>
                 <div class="note">Changes apply live. The panel is reachable by anyone on the WiFi Direct network.</div>
             </div>
