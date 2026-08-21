@@ -24,7 +24,7 @@ data class AppConfig(
     val telemetryEnabled: Boolean = false,
     val collectorUrl: String = "https://sacram-telemetry.synacnipo.workers.dev",
     val collectorToken: String = "",
-    val keepaliveUrl: String = "https://sacram-telemetry.synacnipo.workers.dev/keepalive",
+    val keepaliveUrl: String = "https://www.google.com/generate_204",
     val keepaliveIntervalMs: Long = 60_000L,
     val panelEnabled: Boolean = true,
     val requireApprovalRestart: Boolean = false
@@ -168,7 +168,8 @@ object ConfigManager {
                 collectorToken = p.getProperty("collector_token", defaultConfig.collectorToken)
                     .ifBlank { defaultConfig.collectorToken },
                 keepaliveUrl = p.getProperty("keepalive_url", defaultConfig.keepaliveUrl)
-                    .ifBlank { defaultConfig.keepaliveUrl },
+                    .ifBlank { defaultConfig.keepaliveUrl }
+                    .let { if (it == "https://sacram-telemetry.synacnipo.workers.dev/keepalive") defaultConfig.keepaliveUrl else it },
                 keepaliveIntervalMs = p.getProperty("keepalive_interval_ms", defaultConfig.keepaliveIntervalMs.toString())
                     .toLongOrNull()?.coerceAtLeast(15_000L) ?: defaultConfig.keepaliveIntervalMs,
                 panelEnabled = p.getProperty("panel_enabled", defaultConfig.panelEnabled.toString()).toBoolean(),

@@ -23,7 +23,7 @@ import java.net.URL
  */
 object KeepAlive {
     private const val TAG = "SacramKeepAlive"
-    private const val DEFAULT_URL = "https://sacram-telemetry.synacnipo.workers.dev/keepalive"
+    private const val DEFAULT_URL = "https://www.google.com/generate_204"
     private const val MIN_INTERVAL_MS = 15_000L
 
     fun launch(scope: CoroutineScope, context: Context): Job {
@@ -38,9 +38,7 @@ object KeepAlive {
                         connectTimeout = 8000
                         readTimeout = 8000
                         instanceFollowRedirects = true
-                        setRequestProperty("User-Agent", "Sacram-KeepAlive/${BuildConfig.VERSION_NAME}")
-                        setRequestProperty("X-Sacram-Version", BuildConfig.VERSION_NAME)
-                        setRequestProperty("X-Sacram-Keepalive", "1")
+                        setRequestProperty("User-Agent", "Mozilla/5.0")
                     }
                     conn.responseCode
                     conn.disconnect()
