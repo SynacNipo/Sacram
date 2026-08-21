@@ -1,5 +1,11 @@
 # Sacram
 
+<p align="center">
+  <img src="ic_launcher_fg.svg" width="108" height="108" alt="Sacram launcher icon">
+</p>
+
+> App icon source: [`ic_launcher_fg.xml`](src/MobileApp-src/src/main/res/drawable/ic_launcher_fg.xml) (Android VectorDrawable; rendered above on the app's `#1B2736` brand color).
+
 ![Created](https://img.shields.io/badge/created-2026--08--11-blue)
 ![Platform](https://img.shields.io/badge/platform-Android%20%7C%20WiFi%20Direct-3DDC84)
 ![Made with](https://img.shields.io/badge/made%20with-Kotlin-7F52FF)
