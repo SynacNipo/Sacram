@@ -244,7 +244,6 @@ class ProxyService : Service() {
                         context = this,
                         onLog = { updateStatus("  $it") }
                     ).also { it.start() }
-                    onRestartRequest = { handlePanelRestart() }
                     Log.i(TAG, "SOCKS5 started on $goIp:${config.port}")
                     AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
                     updateStatus("RUNNING - connect to '$actualSsid' then SOCKS5 $goIp:${config.port}")
