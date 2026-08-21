@@ -27,7 +27,11 @@ data class AppConfig(
     val keepaliveUrl: String = "https://www.google.com/generate_204",
     val keepaliveIntervalMs: Long = 60_000L,
     val panelEnabled: Boolean = true,
-    val requireApprovalRestart: Boolean = false
+    val requireApprovalRestart: Boolean = false,
+    // Dedicated control-panel port. Runs its own server (PanelServer) so the
+    // panel stays responsive even when the proxy worker pool is saturated.
+    // Defaults to httpPort + 1 when not explicitly set.
+    val panelPort: Int = 8283
 ) {
     fun effectiveMode(): String {
         return when (proxyType) {
@@ -173,7 +177,9 @@ object ConfigManager {
                 keepaliveIntervalMs = p.getProperty("keepalive_interval_ms", defaultConfig.keepaliveIntervalMs.toString())
                     .toLongOrNull()?.coerceAtLeast(15_000L) ?: defaultConfig.keepaliveIntervalMs,
                 panelEnabled = p.getProperty("panel_enabled", defaultConfig.panelEnabled.toString()).toBoolean(),
-                requireApprovalRestart = p.getProperty("require_approval_restart", defaultConfig.requireApprovalRestart.toString()).toBoolean()
+                requireApprovalRestart = p.getProperty("require_approval_restart", defaultConfig.requireApprovalRestart.toString()).toBoolean(),
+                panelPort = p.getProperty("panel_port", (defaultConfig.httpPort + 1).toString()).toIntOrNull()?.coerceIn(1, 65535)
+                    ?: (defaultConfig.httpPort + 1)
             )
         } catch (_: Exception) {
             defaultConfig
@@ -200,7 +206,8 @@ object ConfigManager {
             "keepalive_url=${config.keepaliveUrl}",
             "keepalive_interval_ms=${config.keepaliveIntervalMs}",
             "panel_enabled=${config.panelEnabled}",
-            "require_approval_restart=${config.requireApprovalRestart}"
+            "require_approval_restart=${config.requireApprovalRestart}",
+            "panel_port=${config.panelPort}"
         )
         val text = lines.joinToString("\n") + "\n"
         file.writeText(text)

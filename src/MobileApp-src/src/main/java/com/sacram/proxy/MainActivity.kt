@@ -73,6 +73,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etKeepaliveInterval: EditText
     private lateinit var chkRequireApprovalRestart: CheckBox
     private lateinit var chkDisableBandSelector: CheckBox
+    private lateinit var tvPanelUrl: TextView
     private lateinit var tilPort: com.google.android.material.textfield.TextInputLayout
     private lateinit var tilHttpPort: com.google.android.material.textfield.TextInputLayout
     private lateinit var btnCheckUpdate: Button
@@ -122,6 +123,7 @@ class MainActivity : AppCompatActivity() {
         etKeepaliveInterval = findViewById(R.id.etKeepaliveInterval)
         chkRequireApprovalRestart = findViewById(R.id.chkRequireApprovalRestart)
         chkDisableBandSelector = findViewById(R.id.chkDisableBandSelector)
+        tvPanelUrl = findViewById(R.id.tvPanelUrl)
         tilBand = findViewById(R.id.tilBand)
         etKeepaliveUrl.setText(config.keepaliveUrl)
         etKeepaliveInterval.setText((config.keepaliveIntervalMs / 1000).toString())
@@ -460,15 +462,21 @@ class MainActivity : AppCompatActivity() {
     private fun renderInfo(info: ApInfo) {
         if (info.ssid.isEmpty()) {
             tvInfo.text = "--"
+            tvPanelUrl.text = ""
             return
         }
-        tvInfo.text = """
-            SSID:      ${info.ssid}
-            Password:  ${info.passphrase}
-            SOCKS5:    ${info.goIp}:${etPort.text.ifEmpty { "1080" }}
-            HTTP:      ${info.goIp}:${etHttpPort.text.ifEmpty { "8282" }}
-            Clients:   ${info.clients}
-        """.trimIndent()
+        val infoLines = mutableListOf(
+            "SSID:      ${info.ssid}",
+            "Password:  ${info.passphrase}",
+            "SOCKS5:    ${info.goIp}:${etPort.text.ifEmpty { "1080" }}",
+            "HTTP:      ${info.goIp}:${etHttpPort.text.ifEmpty { "8282" }}"
+        )
+        if (info.panelPort > 0) infoLines.add("Panel:     http://${info.goIp}:${info.panelPort}/")
+        infoLines.add("Clients:   ${info.clients}")
+        tvInfo.text = infoLines.joinToString("\n")
+        tvPanelUrl.text = if (info.panelPort > 0)
+            "Control panel runs on its own port:\nhttp://${info.goIp}:${info.panelPort}/"
+        else ""
     }
 
     private fun startSelectedProxy() {

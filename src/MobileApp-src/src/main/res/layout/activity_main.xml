@@ -344,6 +344,15 @@
                 android:text="Require approval for panel restart" />
 
             <TextView
+                android:id="@+id/tvPanelUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:textIsSelectable="true" />
+
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"

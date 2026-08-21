@@ -50,8 +50,15 @@ Android app (Kotlin) that turns any spare Android phone into a **WiFi Direct hot
    ASSOCIATE, RFC 1928, port `1080`) and **HTTP** (plain HTTP + CONNECT tunnels,
    port `8282`) start together, so clients can use whichever they support. The previous
    SOCKS5-only / HTTP-only / Hybrid picker was replaced by this single Auto mode.
-3. A built-in **control panel** (served by the HTTP proxy) shows live status, the app
-   version, and a Restart button; the config is stored so it survives app reinstalls.
+3. A built-in **control panel** shows live status, the app version, and a Restart
+   button; the config is stored so it survives app reinstalls. The panel runs on its
+   **own dedicated port** (default `http_port + 1`, i.e. `8283`) via a separate
+   `PanelServer`, so it stays responsive even when the proxy is saturated by a busy
+   page. Reach it directly at `http://<phone-ip>:<panel_port>/` (e.g.
+   `http://192.168.49.1:8283/`). Because it is on its own port, a browser that sends
+   *all* traffic through the proxy must open it directly (or add the phone IP to the
+   browser's proxy bypass list); the sing-box TUN client already excludes the phone
+   subnet, so direct access works there.
 4. Lets a connected PC / device reach the internet through the phone's data connection
 5. Runs as an **aggressive foreground service** (wakelocks, WiFi lock, `START_STICKY`, battery-exemption + autostart shortcuts)
 

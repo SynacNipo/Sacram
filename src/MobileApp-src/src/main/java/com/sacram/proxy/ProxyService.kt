@@ -69,6 +69,7 @@ class ProxyService : Service() {
     private val started = AtomicBoolean(false)
     private var socks: Socks5Server? = null
     private var http: HttpProxyServer? = null
+    private var panel: PanelServer? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var fileObserver: FileObserver? = null
@@ -196,17 +197,16 @@ class ProxyService : Service() {
                         port = config.httpPort,
                         context = this,
                         goIp = goIp,
-                        panelEnabled = config.panelEnabled,
+                        panelPort = config.panelPort,
                         onLog = { updateStatus("  $it") },
-                        onRestartRequest = { handlePanelRestart() },
                         onStaleDetected = { restartProxy() }
                     )
                     http = server
                     server.start()
                     Log.i(TAG, "HTTP proxy started on $goIp:${config.httpPort}")
-                    AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
+                    AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0, config.panelPort)
                     updateStatus("RUNNING (HTTP) - connect to '$actualSsid' then HTTP proxy $goIp:${config.httpPort}")
-                    updateNotification(actualSsid, actualPass, goIp, config.httpPort, 0, false)
+                    updateNotification(actualSsid, actualPass, goIp, config.httpPort, 0, false, config.panelPort)
                     Telemetry.send(this, "proxy_started", mapOf("mode" to "http", "port" to "${config.httpPort}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
                 }
                 hybrid -> {
@@ -223,17 +223,16 @@ class ProxyService : Service() {
                         port = config.httpPort,
                         context = this,
                         goIp = goIp,
-                        panelEnabled = config.panelEnabled,
+                        panelPort = config.panelPort,
                         onLog = { updateStatus("  $it") },
-                        onRestartRequest = { handlePanelRestart() },
                         onStaleDetected = { restartProxy() }
                     )
                     http = server
                     server.start()
                     Log.i(TAG, "HTTP proxy started on $goIp:${config.httpPort}")
-                    AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
+                    AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0, config.panelPort)
                     updateStatus("RUNNING (HYBRID) - connect to '$actualSsid' then SOCKS5 $goIp:${config.port} and HTTP $goIp:${config.httpPort}")
-                    updateNotification(actualSsid, actualPass, goIp, config.port, config.httpPort, true)
+                    updateNotification(actualSsid, actualPass, goIp, config.port, config.httpPort, true, config.panelPort)
                     Telemetry.send(this, "proxy_started", mapOf("mode" to "hybrid", "port" to "${config.port}", "http_port" to "${config.httpPort}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
                 }
                 else -> {
@@ -245,11 +244,29 @@ class ProxyService : Service() {
                         onLog = { updateStatus("  $it") }
                     ).also { it.start() }
                     Log.i(TAG, "SOCKS5 started on $goIp:${config.port}")
-                    AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0)
+                    AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0, config.panelPort)
                     updateStatus("RUNNING - connect to '$actualSsid' then SOCKS5 $goIp:${config.port}")
-                    updateNotification(actualSsid, actualPass, goIp, config.port, 0, false)
+                    updateNotification(actualSsid, actualPass, goIp, config.port, 0, false, config.panelPort)
                     Telemetry.send(this, "proxy_started", mapOf("mode" to "socks5", "port" to "${config.port}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
                 }
+            }
+
+            // Control panel runs on its own port + own thread pool, independent of
+            // the proxy traffic, so it stays responsive even when the proxy is
+            // saturated by a heavy page. Started in every mode (it only serves
+            // local content and never touches the egress network).
+            if (config.panelEnabled) {
+                val ps = PanelServer(
+                    port = config.panelPort,
+                    context = this,
+                    enabled = true,
+                    onLog = { updateStatus("  $it") },
+                    onRestartRequest = { handlePanelRestart() }
+                )
+                panel = ps
+                ps.start()
+                Log.i(TAG, "Control panel started on $goIp:${config.panelPort}")
+                updateStatus("Panel: http://$goIp:${config.panelPort}/")
             }
 
             // client count poller + group-keepalive + health heartbeat (every 5 min)
@@ -379,7 +396,8 @@ class ProxyService : Service() {
                         g.networkName, g.passphrase, goIp,
                         if (httpMode) config.httpPort else config.port,
                         if (hybrid) config.httpPort else 0,
-                        hybrid
+                        hybrid,
+                        config.panelPort
                     )
                     Log.i(TAG, "WiFi Direct group recreated (kept alive) ssid=${g.networkName} goIp=$goIp")
                 }
@@ -396,8 +414,10 @@ class ProxyService : Service() {
             updateStatus("Config changed, restarting...")
             runCatching { socks?.stop() }
             runCatching { http?.stop() }
+            runCatching { panel?.stop() }
             socks = null
             http = null
+            panel = null
             val p2p = WifiDirectManager(this@ProxyService)
             p2p.removeGroup { }
             delay(1500)
@@ -415,8 +435,10 @@ class ProxyService : Service() {
         runCatching { fileObserver?.stopWatching() }
         runCatching { socks?.stop() }
         runCatching { http?.stop() }
+        runCatching { panel?.stop() }
         socks = null
         http = null
+        panel = null
         runCatching { WifiDirectManager(this).removeGroup() }
         releaseLocks()
         scope.cancel()
@@ -488,12 +510,13 @@ class ProxyService : Service() {
             .build()
     }
 
-    private fun updateNotification(ssid: String, pass: String, ip: String, socksPort: Int, httpPort: Int, hybrid: Boolean) {
+    private fun updateNotification(ssid: String, pass: String, ip: String, socksPort: Int, httpPort: Int, hybrid: Boolean, panelPort: Int = 0) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val panelLine = if (panelPort > 0) "\nPanel: $ip:$panelPort" else ""
         val detail = if (hybrid) {
-            "SSID: $ssid\nSOCKS5: $ip:$socksPort\nHTTP: $ip:$httpPort\nPassword: $pass"
+            "SSID: $ssid\nSOCKS5: $ip:$socksPort\nHTTP: $ip:$httpPort\nPassword: $pass$panelLine"
         } else {
-            "SSID: $ssid\nIP: $ip:$socksPort\nPassword: $pass"
+            "SSID: $ssid\nIP: $ip:$socksPort\nPassword: $pass$panelLine"
         }
         val summary = if (hybrid) "$ssid | SOCKS5 $ip:$socksPort | HTTP $ip:$httpPort | pass: $pass"
         else "$ssid | $ip:$socksPort | pass: $pass"

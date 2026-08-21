@@ -37,9 +37,11 @@ class HttpProxyServer(
     private val port: Int,
     private val context: Context,
     private val goIp: String = "192.168.49.1",
-    private val panelEnabled: Boolean = true,
+    // Dedicated control-panel port. Requests that hit THIS proxy for one of our
+    // own addresses (the old panel URL) are redirected/told to use the separate
+    // PanelServer instead - the panel no longer runs on the shared proxy pool.
+    private val panelPort: Int = -1,
     private val onLog: (String) -> Unit = {},
-    private val onRestartRequest: () -> Unit = {},
     private val onStaleDetected: () -> Unit = {}
 ) {
 
@@ -261,8 +263,12 @@ class HttpProxyServer(
                     break
                 }
 
-                if (panelEnabled && isPanelRequest(method, target, headers)) {
-                    servePanel(reader, output, method, target, headers)
+                // The control panel no longer runs on this proxy. If a request is
+                // aimed at one of our own addresses (the old panel URL), point the
+                // client at the dedicated PanelServer port so it doesn't sit behind
+                // the proxy's worker pool. See PanelServer.kt.
+                if (isSelfHostRequest(method, target, headers)) {
+                    servePanelMoved(output, headers)
                     break
                 }
 
@@ -818,13 +824,14 @@ class HttpProxyServer(
     private val selfHosts = setOf(goIp.lowercase(), "127.0.0.1", "localhost", "[::1]")
 
     /**
-     * A request is for the local panel when it is NOT a CONNECT tunnel and either:
+     * True for requests aimed at one of our own addresses (the old panel URL):
      * - origin-form (e.g. `GET /`), which only happens when a browser connects
      *   directly to us, or
      * - absolute-form whose authority is one of our own addresses.
-     * Normal proxy traffic to other hosts is forwarded as usual.
+     * These no longer serve the panel - they are redirected to the dedicated
+     * PanelServer instead. Normal proxy traffic to other hosts is forwarded.
      */
-    private fun isPanelRequest(method: String, target: String, headers: List<String>): Boolean {
+    private fun isSelfHostRequest(method: String, target: String, headers: List<String>): Boolean {
         if (method == "CONNECT") return false
         if (target.startsWith("/")) return true
         val authority = Regex("""^[a-zA-Z][a-zA-Z0-9+.\-]*://([^/?#]+)""")
@@ -832,90 +839,34 @@ class HttpProxyServer(
         return authority.substringBefore(':') in selfHosts
     }
 
-    private fun servePanel(
-        input: StreamReader,
-        output: BufferedOutputStream,
-        method: String,
-        target: String,
-        headers: List<String>
-    ) {
-        if (method == "POST") {
-            if (target == "/restart") {
-                onRestartRequest()
-                writePanelPage(output, restartRequestedHtml())
-                return
-            }
-            val cl = headers.firstOrNull { it.startsWith("Content-Length:", true) }
-                ?.substringAfter(':')?.trim()?.toIntOrNull()
-            val body = if (cl != null && cl in 1..1_000_000) readExact(input, cl) else ""
-            applyPanelForm(body)
-            writePanelPage(output, pendingPageHtml())
-            return
+    /**
+     * The control panel moved to its own port (see PanelServer). When a request
+     * still hits this proxy for one of our own addresses, tell the client where
+     * it went. We deliberately do NOT 302-redirect absolute-form self-host
+     * requests: a browser configured to push all traffic through this proxy would
+     * just re-request the redirect target here and loop forever. A plain info
+     * page with the new URL (and a link for direct connections) avoids that.
+     */
+    private fun servePanelMoved(output: BufferedOutputStream, headers: List<String>) {
+        val panelUrl = "http://$goIp:$panelPort/"
+        val directLink = if (headers.any { it.startsWith("Proxy-Connection:", true) }
+            || headers.any { it.startsWith("Via:", true) }) {
+            // Came through a proxy - the link still has to be opened directly.
+            "<p>Open this address <b>directly</b> in your browser (add <code>$goIp</code> " +
+                "to your proxy bypass list if needed):</p><p><a href=\"$panelUrl\">$panelUrl</a></p>"
+        } else {
+            "<p>The panel has moved. <a href=\"$panelUrl\">Continue to the control panel</a>.</p>"
         }
-        if (target == "/api/status") {
-            writeStatusJson(output)
-            return
-        }
-        writePanelPage(output, buildPanelHtml())
-    }
-
-    private fun writeStatusJson(output: BufferedOutputStream) {
-        val cfg = ConfigManager.load(context)
-        val info = AppState.apInfo.value
-        val uptime = if (AppState.serviceStartedAt > 0)
-            (System.currentTimeMillis() - AppState.serviceStartedAt) / 1000 else 0
-        val uptimeStr = "${uptime / 3600}h ${(uptime % 3600) / 60}m ${uptime % 60}s"
-        val mode = when {
-            AppState.httpMode.value && info.clients >= 0 && cfg.effectiveMode() == "http" -> "HTTP"
-            cfg.isHybrid() -> "Hybrid"
-            cfg.effectiveMode() == "http" -> "HTTP"
-            else -> "SOCKS5"
-        }
-        val json = buildString {
-            append('{')
-            append("\"status\":\"").append(escapeJson(AppState.status.value)).append("\",")
-            append("\"running\":").append(AppState.running.value).append(',')
-            append("\"uptime\":\"").append(uptimeStr).append("\",")
-            append("\"mode\":\"").append(mode).append("\",")
-            append("\"ssid\":\"").append(escapeJson(info.ssid)).append("\",")
-            append("\"passphrase\":\"").append(escapeJson(info.passphrase)).append("\",")
-            append("\"goIp\":\"").append(escapeJson(info.goIp)).append("\",")
-            append("\"clients\":").append(info.clients).append(',')
-            append("\"tcpTunnels\":").append(AppState.tcpTunnels.value).append(',')
-            append("\"requireApprovalRestart\":").append(cfg.requireApprovalRestart).append(',')
-            append("\"version\":\"").append(BuildConfig.VERSION_NAME).append("\"")
-            append('}')
-        }
-        val bytes = json.toByteArray(Charsets.UTF_8)
-        val header = "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\n" +
-            "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
-        output.write(header.toByteArray(Charsets.UTF_8))
-        output.write(bytes)
-        output.flush()
-    }
-
-    private fun escapeJson(s: String): String = s
-        .replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
-
-    private fun restartRequestedHtml(): String {
-        val cfg = ConfigManager.load(context)
-        val msg = if (cfg.requireApprovalRestart)
-            "Restart is waiting for the phone owner to approve it <b>inside the Sacram app</b> (10 second window)."
-        else
-            "Restarting the proxy + hotspot now. The panel will come back online in a few seconds."
-        return """
+        val html = """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Sacram Panel</title>
+        <title>Sacram Panel moved</title>
         <style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:24px}
-        a{color:#58a6ff}</style></head><body>
-        <h1>Restart requested</h1>
-        <p>$msg</p>
-        <p><a href="/">Back to panel</a></p>
+        a{color:#58a6ff} code{background:#21262d;padding:1px 5px;border-radius:4px}</style></head><body>
+        <h1>Sacram Control Panel moved</h1>
+        <p>The control panel now runs on its own dedicated port so it stays responsive even when the proxy is busy.</p>
+        $directLink
         </body></html>
         """.trimIndent()
-    }
-
-    private fun writePanelPage(output: BufferedOutputStream, html: String) {
         val bytes = html.toByteArray(Charsets.UTF_8)
         val header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n" +
             "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
@@ -923,144 +874,6 @@ class HttpProxyServer(
         output.write(bytes)
         output.flush()
     }
-
-    private fun pendingPageHtml(): String = """
-        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Sacram Panel</title>
-        <style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:24px}
-        a{color:#58a6ff}</style></head><body>
-        <h1>Change requested</h1>
-        <p>The requested settings change is waiting for the phone owner to approve it <b>inside the Sacram app</b> (10 second window).</p>
-        <p>If the owner ignores or denies it, <b>nothing changes</b>.</p>
-        <p><a href="/">Back to panel</a></p>
-        </body></html>
-        """.trimIndent()
-
-
-    private fun readExact(input: InputStream, n: Int): String {
-        val buf = ByteArray(n)
-        var r = 0
-        while (r < n) {
-            val m = input.read(buf, r, n - r)
-            if (m <= 0) break
-            r += m
-        }
-        return String(buf, 0, r, Charsets.UTF_8)
-    }
-
-    private fun urlDecode(s: String): String = try {
-        java.net.URLDecoder.decode(s, "UTF-8")
-    } catch (_: Exception) {
-        s
-    }
-
-    private fun applyPanelForm(body: String) {
-        val map = mutableMapOf<String, String>()
-        body.split('&').forEach { pair ->
-            if (pair.isEmpty()) return@forEach
-            val idx = pair.indexOf('=')
-            val k = if (idx >= 0) urlDecode(pair.substring(0, idx)) else urlDecode(pair)
-            val v = if (idx >= 0) urlDecode(pair.substring(idx + 1)) else ""
-            map[k] = v
-        }
-        PanelApproval.submit(map)
-        onLog("Panel change requested - awaiting in-app approval")
-    }
-
-    private fun buildPanelHtml(): String {
-        val cfg = ConfigManager.load(context)
-        val info = AppState.apInfo.value
-        val uptime = if (AppState.serviceStartedAt > 0)
-            (System.currentTimeMillis() - AppState.serviceStartedAt) / 1000 else 0
-        val uptimeStr = "${uptime / 3600}h ${(uptime % 3600) / 60}m ${uptime % 60}s"
-        val mode = when {
-            AppState.httpMode.value && info.clients >= 0 && cfg.effectiveMode() == "http" -> "HTTP"
-            cfg.isHybrid() -> "Hybrid"
-            cfg.effectiveMode() == "http" -> "HTTP"
-            else -> "SOCKS5"
-        }
-        val telChecked = if (cfg.telemetryEnabled) "checked" else ""
-        val panelChecked = if (cfg.panelEnabled) "checked" else ""
-        val restartNote = if (cfg.requireApprovalRestart)
-            "Restarts the proxy + hotspot. Requires in-app owner approval (10s window)."
-        else
-            "Restarts the proxy + hotspot immediately (no approval). Enable \"Require approval for panel restart\" in the app's Keep-Alive tab to gate it."
-        return """
-        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Sacram Panel</title>
-        <style>
-        body{font-family:system-ui,sans-serif;margin:0;background:#0d1117;color:#e6edf3;padding:16px}
-        h1{font-size:20px;margin:0 0 12px}.card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:14px}
-        .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #21262d}
-        .row:last-child{border-bottom:0}.k{color:#8b949e}.v{font-weight:600;word-break:break-all;text-align:right;max-width:60%}
-        label{display:block;margin:10px 0 4px;color:#8b949e;font-size:13px}
-        input[type=text],input[type=number]{width:100%;box-sizing:border-box;padding:9px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:14px}
-        .checkbox{display:flex;align-items:center;gap:8px;margin:10px 0}
-        button{width:100%;padding:12px;border:0;border-radius:8px;background:#238636;color:#fff;font-size:15px;font-weight:600;margin-top:6px}
-        button.restart{background:#1f6feb}
-        .note{font-size:12px;color:#8b949e;margin-top:8px}
-        code{background:#21262d;padding:1px 5px;border-radius:4px}
-        </style></head><body>
-        <h1>Sacram Control Panel</h1>
-        <div class="card">
-            <div class="row"><span class="k">Status</span><span class="v" id="v-status">${escapeHtml(AppState.status.value)}</span></div>
-            <div class="row"><span class="k">Running</span><span class="v" id="v-running">${AppState.running.value}</span></div>
-            <div class="row"><span class="k">Uptime</span><span class="v" id="v-uptime">$uptimeStr</span></div>
-            <div class="row"><span class="k">Mode</span><span class="v" id="v-mode">$mode</span></div>
-            <div class="row"><span class="k">SSID</span><span class="v" id="v-ssid">${escapeHtml(info.ssid)}</span></div>
-            <div class="row"><span class="k">Password</span><span class="v" id="v-pass">${escapeHtml(info.passphrase)}</span></div>
-            <div class="row"><span class="k">Group IP</span><span class="v" id="v-goip">${escapeHtml(info.goIp)}</span></div>
-            <div class="row"><span class="k">Clients</span><span class="v" id="v-clients">${info.clients}</span></div>
-            <div class="row"><span class="k">TCP tunnels open</span><span class="v" id="v-tunnels">${AppState.tcpTunnels.value}</span></div>
-            <div class="row"><span class="k">Version</span><span class="v" id="v-ver">${BuildConfig.VERSION_NAME}</span></div>
-        </div>
-        <form method="post" action="/restart">
-            <div class="card">
-                <button type="submit" class="restart">Restart proxy</button>
-                <div class="note">$restartNote</div>
-            </div>
-        </form>
-        <form method="post" action="/">
-            <div class="card">
-                <label>Keep-alive URL</label>
-                <input type="text" name="keepalive_url" value="${escapeHtml(cfg.keepaliveUrl)}">
-                <label>Keep-alive interval (seconds, min 15)</label>
-                <input type="number" name="keepalive_interval" value="${cfg.keepaliveIntervalMs / 1000}" min="15">
-                <div class="checkbox"><input type="checkbox" name="telemetry_enabled" value="on" $telChecked><span>Telemetry enabled</span></div>
-                <div class="checkbox"><input type="checkbox" name="panel_enabled" value="on" $panelChecked><span>Control panel enabled</span></div>
-                <label>WiFi Band</label>
-                <select name="band" style="width:100%;padding:9px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:14px">
-                    <option value="2.4"${if (cfg.band == "2.4") " selected" else ""}>2.4 GHz (default)</option>
-                    <option value="5"${if (cfg.band == "5") " selected" else ""}>5 GHz</option>
-                    <option value="auto"${if (cfg.band == "auto") " selected" else ""}>Auto</option>
-                </select>
-                <button type="submit">Save settings</button>
-                <div class="note">Changes apply live. The panel is reachable by anyone on the WiFi Direct network.</div>
-            </div>
-        </form>
-        <div class="note">SOCKS5: <code>${escapeHtml(info.goIp)}:${cfg.port}</code> &nbsp; HTTP: <code>${escapeHtml(info.goIp)}:${cfg.httpPort}</code></div>
-        <script>
-        async function sacramRefresh(){
-          try{
-            var r=await fetch('/api/status',{cache:'no-store'});
-            var d=await r.json();
-            var set=function(id,v){var e=document.getElementById(id);if(e)e.textContent=v;};
-            set('v-status',d.status);set('v-running',d.running);set('v-uptime',d.uptime);
-            set('v-mode',d.mode);set('v-ssid',d.ssid);set('v-pass',d.passphrase);
-            set('v-goip',d.goIp);set('v-clients',d.clients);set('v-tunnels',d.tcpTunnels);
-            set('v-ver',d.version);
-          }catch(e){}
-        }
-        sacramRefresh();
-        setInterval(sacramRefresh,5000);
-        </script>
-        </body></html>
-        """.trimIndent()
-    }
-
-    private fun escapeHtml(s: String): String = s
-        .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        .replace("\"", "&quot;").replace("'", "&#39;")
 
     companion object {
         // Reused across pump() calls on the same worker thread, so dozens of
