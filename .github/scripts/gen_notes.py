@@ -14,13 +14,23 @@ import urllib.error
 import urllib.request
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-# Free models, tried in order. OpenRouter rotates its free lineup, so having
-# several means a removal of one doesn't break release notes (we just try the next).
-MODELS = [
-    "google/gemma-4-31b-it:free",
-    "openai/gpt-oss-20b:free",
-    "z-ai/glm-5.2:free",
-    "nvidia/nemotron-nano-9b-v2:free",
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+# Providers tried in order. Groq's free tier has far higher rate limits than
+# OpenRouter's, so it's first; OpenRouter is a fallback if no Groq key is set.
+# Each provider lists free models to try (in case one is pulled).
+PROVIDERS = [
+    ("groq", GROQ_URL, "GROQ_API_KEY", [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "gemma2-9b-it",
+    ]),
+    ("openrouter", OPENROUTER_URL, "OPENROUTER_API_KEY", [
+        "google/gemma-4-31b-it:free",
+        "openai/gpt-oss-20b:free",
+        "z-ai/glm-5.2:free",
+        "nvidia/nemotron-nano-9b-v2:free",
+    ]),
 ]
 
 
@@ -47,53 +57,58 @@ def main() -> None:
     )
 
     last_err = None
-    for model in MODELS:
-        # Free-tier rate limits are tight; retry with backoff on 429/5xx instead
-        # of immediately burning the next model (which just 429s too and wastes
-        # what little quota we have). Stop at the first model that answers.
-        done = False
-        for attempt in range(4):
-            payload = {
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 700,
-                "temperature": 0.2,
-            }
-            req = urllib.request.Request(
-                OPENROUTER_URL,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={
-                    "Authorization": f"Bearer {key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://github.com/SynacNipo/Sacram",
-                    "X-Title": "Sacram",
-                },
-                method="POST",
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=60) as resp:
-                    data = json.load(resp)
-                text = data["choices"][0]["message"]["content"].strip()
-                if text:
-                    print(text)
-                    return
-                done = True
-                break
-            except urllib.error.HTTPError as e:
-                if e.code == 429 or e.code >= 500:
-                    wait = (attempt + 1) * 15
-                    sys.stderr.write(f"model {model} {e.code}, retry in {wait}s\n")
-                    time.sleep(wait)
-                    continue
-                last_err = e
-                sys.stderr.write(f"model {model} failed: {e}\n")
-                break
-            except Exception as e:  # noqa: BLE001 - non-HTTP error, try next model
-                last_err = e
-                sys.stderr.write(f"model {model} failed: {e}\n")
-                break
-        if done:
-            return
+    for provider, url, key_env, models in PROVIDERS:
+        key = os.environ.get(key_env)
+        if not key:
+            sys.stderr.write(f"{provider}: no {key_env} set - skipping\n")
+            continue
+        for model in models:
+            # Free-tier rate limits are tight; retry with backoff on 429/5xx
+            # instead of immediately burning the next model (which just 429s too
+            # and wastes what little quota we have). Stop at first model that answers.
+            done = False
+            for attempt in range(4):
+                payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 700,
+                    "temperature": 0.2,
+                }
+                req = urllib.request.Request(
+                    url,
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://github.com/SynacNipo/Sacram",
+                        "X-Title": "Sacram",
+                    },
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        data = json.load(resp)
+                    text = data["choices"][0]["message"]["content"].strip()
+                    if text:
+                        print(text)
+                        return
+                    done = True
+                    break
+                except urllib.error.HTTPError as e:
+                    if e.code == 429 or e.code >= 500:
+                        wait = (attempt + 1) * 15
+                        sys.stderr.write(f"{provider}/{model} {e.code}, retry in {wait}s\n")
+                        time.sleep(wait)
+                        continue
+                    last_err = e
+                    sys.stderr.write(f"{provider}/{model} failed: {e}\n")
+                    break
+                except Exception as e:  # noqa: BLE001 - non-HTTP error, try next model
+                    last_err = e
+                    sys.stderr.write(f"{provider}/{model} failed: {e}\n")
+                    break
+            if done:
+                return
 
     if last_err is not None:
         sys.stderr.write(f"AI release notes failed: {last_err}\n")

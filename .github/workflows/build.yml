@@ -87,9 +87,10 @@ jobs:
       - name: Rename APK to sacram.apk
         run: cp src/MobileApp-src/build/outputs/apk/debug/app-debug.apk src/MobileApp-src/build/outputs/apk/debug/sacram.apk
 
-      - name: Generate AI release notes (OpenRouter, free)
+      - name: Generate AI release notes (Groq primary, OpenRouter fallback)
         id: ainotes
         env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GH_TOKEN: ${{ github.token }}
         run: |
