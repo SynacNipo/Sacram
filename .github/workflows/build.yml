@@ -18,16 +18,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Check for [Trigger] in latest commit message
+      - name: Check for [Trigger]/[DEBUG] in latest commit message
         id: check
         run: |
           msg=$(git log -1 --format=%s)
-          if echo "$msg" | grep -q "\[Trigger\]"; then
+          if echo "$msg" | grep -Eq "\[Trigger\]|\[DEBUG\]"; then
             echo "run-build=true" >> "$GITHUB_OUTPUT"
-            echo "Commit contains [Trigger] -> building"
+            if echo "$msg" | grep -q "\[Trigger\]"; then
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+              echo "Commit contains [Trigger] -> building + publishing release"
+            else
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              echo "Commit contains [DEBUG] -> building only, NO release published"
+            fi
           else
             echo "run-build=false" >> "$GITHUB_OUTPUT"
-            echo "No [Trigger] in commit: $msg -> skipping build"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "No [Trigger]/[DEBUG] in commit: $msg -> skipping build"
           fi
 
   build:
@@ -100,8 +107,12 @@ jobs:
             printf '%s\n' "$notes"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+          echo "----- GENERATED RELEASE NOTES (debug) -----"
+          printf '%s\n' "$notes"
+          echo "------------------------------------------------"
 
       - name: Publish release (auto-incremented tag)
+        if: needs.gate.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           NOTES: ${{ steps.ainotes.outputs.notes }}
