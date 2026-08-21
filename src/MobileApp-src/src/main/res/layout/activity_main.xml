@@ -339,7 +339,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Hides the band dropdown in the hotspot settings and forces the default 2.4 GHz band. Useful if your phone ignores the choice and you want a simpler UI."
+                android:text="Hides the band dropdown and forces 2.4 GHz. Use if your phone ignores the band you pick."
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
 
@@ -347,7 +347,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="When off (default), the Restart proxy button on the web control panel restarts immediately - useful when you can't reach the phone physically. When on, a restart must be approved in-app within 10 seconds, like other panel changes."
+                android:text="When on, panel restarts need in-app approval within 10s. Off (default) restarts immediately."
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
 
