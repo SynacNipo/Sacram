@@ -282,81 +282,106 @@ class HttpProxyServer(
         headers: List<String>,
         clientKeepAlive: Boolean
     ) {
-        var upstream: Socket? = null
-        val t0 = System.currentTimeMillis()
-        try {
-            upstream = acquireUpstream(host, port)
-            val upOut = BufferedOutputStream(upstream.getOutputStream(), upstreamBufSize)
+        // Retry once on a brand-new upstream socket. The first attempt may reuse a
+        // pooled socket that went half-dead on the flaky cellular egress; if it
+        // fails before we've sent a single byte to the client we transparently
+        // retry with a fresh connection (re-resolving the egress network). This is
+        // what stops "keeps timing out / can't load the site" on bad 5G: a stale
+        // pooled socket no longer 502s a request that a fresh one would serve.
+        // Only idempotent methods are retried, so we never replay a POST body.
+        val canRetry = method == "GET" || method == "HEAD" ||
+            method == "OPTIONS" || method == "TRACE"
+        var committed = false
+        for (attempt in 0..1) {
+            var upstream: Socket? = null
+            val t0 = System.currentTimeMillis()
+            try {
+                upstream = acquireUpstream(host, port, forceFresh = attempt == 1)
+                val upOut = BufferedOutputStream(upstream.getOutputStream(), upstreamBufSize)
 
-            val sb = StringBuilder()
-            sb.append("$method $path HTTP/1.1\r\n")
-            for (h in headers) {
-                if (h.startsWith("Proxy-", true)) continue
-                if (h.startsWith("Connection:", true)) continue
-                if (h.startsWith("Host:", true)) continue
-                if (h.startsWith("Proxy-Connection:", true)) continue
-                sb.append(h).append("\r\n")
-            }
-            sb.append("Host: $host:$port\r\n")
-            sb.append("Connection: keep-alive\r\n\r\n")
-            upOut.write(sb.toString().toByteArray())
-            upOut.flush()
-
-            // pipe request body if present (Content-Length or chunked)
-            val contentLength = headers.firstOrNull { it.startsWith("Content-Length:", true) }
-                ?.substringAfter(':')?.trim()?.toIntOrNull()
-            if (method == "POST" || method == "PUT" || method == "PATCH") {
-                if (contentLength != null) {
-                    val body = ByteArray(contentLength)
-                    var read = 0
-                    while (read < contentLength) {
-                        val n = input.read(body, read, contentLength - read)
-                        if (n <= 0) break
-                        read += n
-                    }
-                    upOut.write(body, 0, read)
-                    upOut.flush()
-                } else {
-                    pumpChunked(input, upOut)
+                val sb = StringBuilder()
+                sb.append("$method $path HTTP/1.1\r\n")
+                for (h in headers) {
+                    if (h.startsWith("Proxy-", true)) continue
+                    if (h.startsWith("Connection:", true)) continue
+                    if (h.startsWith("Host:", true)) continue
+                    if (h.startsWith("Proxy-Connection:", true)) continue
+                    sb.append(h).append("\r\n")
                 }
-            }
-            onLog("HTTP $method $host:$port$path")
+                sb.append("Host: $host:$port\r\n")
+                sb.append("Connection: keep-alive\r\n\r\n")
+                upOut.write(sb.toString().toByteArray())
+                upOut.flush()
 
-            val upIn = StreamReader(upstream.getInputStream())
-            val statusLine = readLine(upIn) ?: throw IOException("no response from upstream")
-            val respHeaders = readHeaders(upIn) ?: throw IOException("no response headers")
-            val statusCode = statusLine.split(" ")[1]
-            reportRequest(host, port, method, statusCode, System.currentTimeMillis() - t0)
+                // pipe request body if present (Content-Length or chunked)
+                val contentLength = headers.firstOrNull { it.startsWith("Content-Length:", true) }
+                    ?.substringAfter(':')?.trim()?.toIntOrNull()
+                if (method == "POST" || method == "PUT" || method == "PATCH") {
+                    if (contentLength != null) {
+                        val body = ByteArray(contentLength)
+                        var read = 0
+                        while (read < contentLength) {
+                            val n = input.read(body, read, contentLength - read)
+                            if (n <= 0) break
+                            read += n
+                        }
+                        upOut.write(body, 0, read)
+                        upOut.flush()
+                    } else {
+                        pumpChunked(input, upOut)
+                    }
+                }
+                onLog("HTTP $method $host:$port$path")
 
-            val chunked = respHeaders.any {
-                it.startsWith("Transfer-Encoding:", true) && it.contains("chunked", true)
-            }
-            val respLength = respHeaders.firstOrNull { it.startsWith("Content-Length:", true) }
-                ?.substringAfter(':')?.trim()?.toLongOrNull()
-            val upstreamClose = respHeaders.any {
-                it.startsWith("Connection:", true) && it.contains("close", true)
-            }
-            val upstreamKeepAlive = !upstreamClose && (chunked || respLength != null)
+                val upIn = StreamReader(upstream.getInputStream())
+                val statusLine = readLine(upIn) ?: throw IOException("no response from upstream")
+                val respHeaders = readHeaders(upIn) ?: throw IOException("no response headers")
+                val statusCode = statusLine.split(" ")[1]
+                reportRequest(host, port, method, statusCode, System.currentTimeMillis() - t0)
 
-            writeResponseHeaders(output, statusLine, respHeaders, clientKeepAlive)
+                val chunked = respHeaders.any {
+                    it.startsWith("Transfer-Encoding:", true) && it.contains("chunked", true)
+                }
+                val respLength = respHeaders.firstOrNull { it.startsWith("Content-Length:", true) }
+                    ?.substringAfter(':')?.trim()?.toLongOrNull()
+                val upstreamClose = respHeaders.any {
+                    it.startsWith("Connection:", true) && it.contains("close", true)
+                }
+                val upstreamKeepAlive = !upstreamClose && (chunked || respLength != null)
+                // A response with neither Content-Length nor chunked encoding is
+                // close-delimited: the body ends only when the server closes the
+                // connection. If we advertised keep-alive to the client, the browser
+                // would never see a response boundary and the page would hang - this
+                // is exactly the "plain http site just hangs" case. Force the client
+                // connection closed so the EOF reliably signals end-of-body.
+                val closeDelimited = !chunked && respLength == null
+                val clientKa = clientKeepAlive && !closeDelimited
 
-            when {
-                chunked -> forwardChunkedResponse(upIn, output)
-                respLength != null -> pumpFixed(upIn, output, respLength)
-                else -> pump(upIn, output)
-            }
-            output.flush()
+                writeResponseHeaders(output, statusLine, respHeaders, clientKa)
+                committed = true
 
-            if (upstreamKeepAlive && !upIn.hasRemaining()) {
-                releaseUpstream(host, port, upstream)
-                upstream = null
+                when {
+                    chunked -> forwardChunkedResponse(upIn, output)
+                    respLength != null -> pumpFixed(upIn, output, respLength)
+                    else -> pump(upIn, output)
+                }
+                output.flush()
+
+                if (upstreamKeepAlive && !upIn.hasRemaining()) {
+                    releaseUpstream(host, port, upstream)
+                    upstream = null
+                }
+                runCatching { upstream?.close() }
+                return
+            } catch (e: Exception) {
+                runCatching { upstream?.close() }
+                // Retry only for safe methods and only if nothing reached the client.
+                if (attempt == 0 && canRetry && !committed) continue
+                onLog("HTTP fail $host:$port: ${e.message}")
+                reportRequest(host, port, method, "fail", System.currentTimeMillis() - t0)
+                if (!committed) writeSimpleResponse(output, 502, "Bad Gateway - ${e.message}")
+                return
             }
-        } catch (e: Exception) {
-            onLog("HTTP fail $host:$port: ${e.message}")
-            reportRequest(host, port, method, "fail", System.currentTimeMillis() - t0)
-            writeSimpleResponse(output, 502, "Bad Gateway - ${e.message}")
-        } finally {
-            runCatching { upstream?.close() }
         }
     }
 
@@ -487,20 +512,22 @@ class HttpProxyServer(
         }
     }
 
-    private fun acquireUpstream(host: String, port: Int): Socket {
-        val key = "$host:$port"
-        val pool = connPool[key]
-        var reused: Socket? = null
-        if (pool != null) {
-            synchronized(pool) {
-                val now = System.currentTimeMillis()
-                pool.removeAll { it.second + poolIdleMs < now || it.first.isClosed }
-                val entry = pool.removeLastOrNull()
-                if (entry != null) reused = entry.first
+    private fun acquireUpstream(host: String, port: Int, forceFresh: Boolean = false): Socket {
+        if (!forceFresh) {
+            val key = "$host:$port"
+            val pool = connPool[key]
+            var reused: Socket? = null
+            if (pool != null) {
+                synchronized(pool) {
+                    val now = System.currentTimeMillis()
+                    pool.removeAll { it.second + poolIdleMs < now || it.first.isClosed }
+                    val entry = pool.removeLastOrNull()
+                    if (entry != null) reused = entry.first
+                }
             }
-        }
-        if (reused != null && !reused.isClosed && reused.isConnected) {
-            return reused
+            if (reused != null && !reused.isClosed && reused.isConnected) {
+                return reused
+            }
         }
         val net = pickNet()
         var up = dial(host, port, net)
