@@ -15,11 +15,17 @@ import urllib.request
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GITHUB_MODELS_URL = "https://models.github.ai/inference/chat/completions"
 
-# Providers tried in order. Groq's free tier has far higher rate limits than
-# OpenRouter's, so it's first; OpenRouter is a fallback if no Groq key is set.
+# Providers tried in order. GitHub Models is keyless (uses the built-in
+# GITHUB_TOKEN, needs `models: read` permission) so it works with zero signup -
+# tried first. Groq/OpenRouter are fallbacks if a key is configured.
 # Each provider lists free models to try (in case one is pulled).
 PROVIDERS = [
+    ("githubmodels", GITHUB_MODELS_URL, "GITHUB_TOKEN", [
+        "openai/gpt-4o-mini",
+        "openai/gpt-4o",
+    ]),
     ("groq", GROQ_URL, "GROQ_API_KEY", [
         "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
