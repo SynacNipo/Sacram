@@ -22,6 +22,7 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import android.content.DialogInterface
@@ -522,9 +523,23 @@ class MainActivity : AppCompatActivity() {
             addView(checkBox)
         }
 
+        // Cap the dialog body height and make it scrollable so the agree checkbox
+        // stays reachable on small screens (otherwise it could sit below the
+        // visible area with no way to scroll to it).
+        val metrics = resources.displayMetrics
+        val maxBodyHeight = (metrics.heightPixels * 0.6f).toInt()
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                maxBodyHeight
+            )
+        }
+        scroll.addView(body)
+
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("Help improve Sacram?")
-            .setView(body)
+            .setView(scroll)
             .setCancelable(false)
             .setNegativeButton("No thanks") { d, _ ->
                 ConfigManager.save(this, cfg.copy(telemetryPrompted = true, telemetryEnabled = false))
