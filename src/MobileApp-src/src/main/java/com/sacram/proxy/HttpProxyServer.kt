@@ -104,10 +104,22 @@ class HttpProxyServer(
     private var staleWatchdogJob: Job? = null
     private val STALE_TIMEOUT_MS = 2 * 60_000L
     private val dnsTtlMs = 60_000L
-    private val poolMax = 4
+    private val poolMax = 16
     private val poolIdleMs = 60_000L
     private val connectTimeoutMs = 10_000
     private val readTimeoutMs = 20_000
+    // Socket buffer sizes. Cellular (the egress path) is high-latency, so the
+    // bandwidth-delay product is large; the platform-default receive/send
+    // buffers (~8-64KB) cap a single stream's throughput far below what the
+    // radio can do. Bumping these lets each tunnel actually saturate the link,
+    // which is what makes "many heavy pages at once" feel fast instead of
+    // serialised. Set before connect()/accept() so the sizes take effect.
+    private val socketRcvBuf = 512 * 1024
+    private val socketSndBuf = 512 * 1024
+    // Larger client-side output buffer so a fast upstream can drain into the
+    // (slower, WiFi-Direct) client without stalling on tiny 8KB flushes.
+    private val clientBufSize = 64 * 1024
+    private val upstreamBufSize = 64 * 1024
     // Idle timeout for CONNECT tunnels. Per-tunnel and deliberately longer than
     // readTimeoutMs: a stalled upstream (server->client direction) with no
     // soTimeout would block the pumping coroutine forever, leaking the slot.
@@ -191,11 +203,20 @@ class HttpProxyServer(
         scope.cancel()
     }
 
+    private fun tuneSocket(sock: Socket) {
+        runCatching { sock.setReceiveBufferSize(socketRcvBuf) }
+        runCatching { sock.setSendBufferSize(socketSndBuf) }
+    }
+
     private suspend fun runServer() {
         try {
             val ss = ServerSocket()
             ss.reuseAddress = true
-            ss.bind(InetSocketAddress("0.0.0.0", port))
+            runCatching { ss.setReceiveBufferSize(socketRcvBuf) }
+            // Bigger accept backlog so a burst of parallel connections from a
+            // busy page (dozens of sub-resource fetches) doesn't get dropped
+            // while the acceptor coroutine is busy.
+            ss.bind(InetSocketAddress("0.0.0.0", port), 1024)
             serverSocket = ss
             while (running.get()) {
                 val client = try {
@@ -204,6 +225,7 @@ class HttpProxyServer(
                     break
                 }
                 client.tcpNoDelay = true
+                tuneSocket(client)
                 scope.launch { handleClient(client) }
             }
         } catch (e: Exception) {
@@ -213,7 +235,7 @@ class HttpProxyServer(
 
     private suspend fun handleClient(client: Socket) {
         val reader = StreamReader(client.getInputStream())
-        val output = BufferedOutputStream(client.getOutputStream())
+        val output = BufferedOutputStream(client.getOutputStream(), clientBufSize)
         try {
             client.soTimeout = 300000
             while (running.get()) {
@@ -264,7 +286,7 @@ class HttpProxyServer(
         val t0 = System.currentTimeMillis()
         try {
             upstream = acquireUpstream(host, port)
-            val upOut = BufferedOutputStream(upstream.getOutputStream())
+            val upOut = BufferedOutputStream(upstream.getOutputStream(), upstreamBufSize)
 
             val sb = StringBuilder()
             sb.append("$method $path HTTP/1.1\r\n")
@@ -451,6 +473,7 @@ class HttpProxyServer(
                 net?.bindSocket(up)
                 up.soTimeout = readTimeoutMs
                 up.tcpNoDelay = true
+                tuneSocket(up)
                 up.connect(InetSocketAddress(addr, port), connectTimeoutMs)
                 up
             } catch (e: Exception) {
@@ -593,7 +616,7 @@ class HttpProxyServer(
     }
 
     private fun pumpFixed(input: InputStream, output: OutputStream, length: Long) {
-        val buf = ByteArray(32768)
+        val buf = ByteArray(131072)
         var remaining = length
         try {
             while (remaining > 0 && running.get()) {
@@ -643,7 +666,7 @@ class HttpProxyServer(
             val dnBytes = AtomicLong(0L)
             coroutineScope {
                 val toServer = async {
-                    pump(input, up.getOutputStream()).also { dnBytes.set(it) }
+                    pump(input, BufferedOutputStream(up.getOutputStream(), upstreamBufSize)).also { dnBytes.set(it) }
                 }
                 val toClient = async {
                     val timed = FirstByteTimer(up.getInputStream()) {
@@ -998,8 +1021,10 @@ class HttpProxyServer(
 
     companion object {
         // Reused across pump() calls on the same worker thread, so dozens of
-        // concurrent tunnels don't each allocate a fresh 64KB buffer (GC churn).
-        private val PUMP_BUF = ThreadLocal.withInitial { ByteArray(65536) }
+        // concurrent tunnels don't each allocate a fresh buffer (GC churn).
+        // 128KB halves the number of read/write syscalls per MB vs 64KB, which
+        // matters when many heavy pages stream simultaneously.
+        private val PUMP_BUF = ThreadLocal.withInitial { ByteArray(131072) }
         private val CRLF = "\r\n".toByteArray(Charsets.ISO_8859_1)
     }
 }
