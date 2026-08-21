@@ -197,6 +197,7 @@ class MainActivity : AppCompatActivity() {
         val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
         val tabProxy = findViewById<LinearLayout>(R.id.tabProxy)
         val tabKeepalive = findViewById<LinearLayout>(R.id.tabKeepalive)
+        val tabCount = 2
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 tabProxy.visibility = if (tab.position == 0) View.VISIBLE else View.GONE
@@ -206,6 +207,14 @@ class MainActivity : AppCompatActivity() {
             override fun onTabUnselected(tab: TabLayout.Tab) {}
             override fun onTabReselected(tab: TabLayout.Tab) {}
         })
+        // Swipe left/right anywhere on the screen to switch tabs (the app's tabs
+        // are plain LinearLayouts, so we detect the horizontal swipe ourselves
+        // instead of using a ViewPager). direction -1 = next tab, +1 = previous.
+        findViewById<SwipeScrollView>(R.id.mainScroll).onSwipe = { dir ->
+            val cur = tabLayout.selectedTabPosition
+            val target = (cur + dir).coerceIn(0, tabCount - 1)
+            if (target != cur) tabLayout.selectTab(tabLayout.getTabAt(target))
+        }
     }
 
     private fun setupAutosave() {
