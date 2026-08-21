@@ -13,3 +13,6 @@ src/tools/
 !src/tools/singbox/detect.ps1
 !src/tools/singbox/config.json
 WORKFLOW.md
+
+# Wiki is a separate repo; don't track it here
+Sacram.wiki/
