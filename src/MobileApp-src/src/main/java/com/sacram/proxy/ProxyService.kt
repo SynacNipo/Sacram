@@ -317,9 +317,11 @@ class ProxyService : Service() {
                             "clients" to "${AppState.apInfo.value.clients}",
                             "mode" to modeLabel,
                             "port" to reportPort,
-                            "running" to "true"
+                            "running" to "true",
+                            "last_active" to "${System.currentTimeMillis()}"
                         ) + Telemetry.batteryInfo(this)
                     )
+                    Telemetry.flush(this)
                 }
             }
         } catch (e: Exception) {
@@ -429,7 +431,8 @@ class ProxyService : Service() {
         started.set(false)
         ProxyState.setShouldRun(this, false)
         cancelWatchdog(this)
-        Telemetry.send(this, "proxy_stopped", mapOf("uptime" to uptimeSeconds()) + Telemetry.batteryInfo(this))
+            Telemetry.send(this, "proxy_stopped", mapOf("uptime" to uptimeSeconds()) + Telemetry.batteryInfo(this))
+            Telemetry.flush(this)
         restartJob?.cancel()
         keepAliveJob?.cancel()
         runCatching { fileObserver?.stopWatching() }

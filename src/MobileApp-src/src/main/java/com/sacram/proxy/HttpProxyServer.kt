@@ -418,7 +418,6 @@ class HttpProxyServer(
         Telemetry.send(
             context, "http_request",
             mapOf(
-                "host" to host,
                 "port" to "$port",
                 "method" to method,
                 "status" to status,
@@ -442,7 +441,6 @@ class HttpProxyServer(
         Telemetry.send(
             context, "http_tunnel",
             mapOf(
-                "host" to host,
                 "port" to "$port",
                 "dms" to "$dms",
                 "up_bytes" to "$upBytes",

@@ -502,7 +502,7 @@ class MainActivity : AppCompatActivity() {
         val message = "Sacram can send anonymous usage data to help improve the app. When enabled it collects:\n\n" +
             "• Device model, Android version, app version\n" +
             "• Proxy events, errors and heartbeats\n" +
-            "• The domain names (hosts) of sites you access through the proxy and their HTTP status codes — used to debug connection drops. No full URLs, search queries, SSID, password or IP addresses are ever collected.\n\n" +
+            "• Connection health only (ports, bytes up/down, latency, status codes) — never the domain names of sites you visit. No full URLs, search queries, SSID, password or IP addresses are ever collected.\n\n" +
             "You can disable it anytime by setting telemetry_enabled=false in config.txt."
 
         val checkBox = CheckBox(this).apply {

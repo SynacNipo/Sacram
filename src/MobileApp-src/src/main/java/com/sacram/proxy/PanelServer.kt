@@ -125,7 +125,8 @@ class PanelServer(
                     ?.substringAfter(':')?.trim()?.toIntOrNull()
                 val body = if (cl != null && cl in 1..1_000_000) readExact(input, cl) else ""
                 applyPanelForm(body)
-                writePanelPage(output, pendingPageHtml())
+                val cfg = ConfigManager.load(context)
+                writePanelPage(output, if (cfg.requireApprovalRestart) pendingPageHtml() else savedPageHtml())
                 return
             }
             if (target == "/api/status") {
@@ -218,6 +219,17 @@ class PanelServer(
         </body></html>
         """.trimIndent()
 
+    private fun savedPageHtml(): String = """
+        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Sacram Panel</title>
+        <style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:24px}
+        a{color:#58a6ff}</style></head><body>
+        <h1>Settings saved</h1>
+        <p>The changes were applied immediately (owner approval not required).</p>
+        <p><a href="/">Back to panel</a></p>
+        </body></html>
+        """.trimIndent()
+
     private fun readExact(input: InputStream, n: Int): String {
         val buf = ByteArray(n)
         var r = 0
@@ -267,8 +279,15 @@ class PanelServer(
             val v = if (idx >= 0) urlDecode(pair.substring(idx + 1)) else ""
             map[k] = v
         }
-        PanelApproval.submit(map)
-        onLog("Panel change requested - awaiting in-app approval")
+        val cfg = ConfigManager.load(context)
+        if (cfg.requireApprovalRestart) {
+            PanelApproval.submit(map)
+            onLog("Panel change requested - awaiting in-app approval")
+        } else {
+            // Owner disabled approval: apply settings immediately, no prompt.
+            PanelApproval.applyFields(context, map)
+            onLog("Panel settings applied (no approval required)")
+        }
     }
 
     private fun buildPanelHtml(): String {
