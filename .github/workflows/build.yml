@@ -77,14 +77,42 @@ jobs:
       - name: Rename APK to sacram.apk
         run: cp src/MobileApp-src/build/outputs/apk/debug/app-debug.apk src/MobileApp-src/build/outputs/apk/debug/sacram.apk
 
+      - name: Generate AI release notes (OpenRouter, free)
+        id: ainotes
+        if: ${{ secrets.OPENROUTER_API_KEY != '' }}
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prev=$(gh release list --json tagName -q '.[].tagName' | grep -v nightly | sort -V | tail -1)
+          if [ -z "$prev" ]; then
+            log=$(git log --no-merges --pretty="%s%n%b" -20)
+          else
+            log=$(git log --no-merges --pretty="%s%n%b" "$prev..HEAD")
+          fi
+          notes=$(printf '%s\n' "$log" | python3 .github/scripts/gen_notes.py)
+          {
+            echo "notes<<EOF"
+            printf '%s\n' "$notes"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Publish release (auto-incremented tag)
         env:
           GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ steps.ainotes.outputs.notes }}
         run: |
-          gh release create "${{ steps.tag.outputs.tag }}" \
-            src/MobileApp-src/build/outputs/apk/debug/sacram.apk \
-            --title "${{ steps.tag.outputs.tag }}" \
-            --notes "Automatic build from commit ${{ github.sha }}"
+          if [ -n "$NOTES" ]; then
+            gh release create "${{ steps.tag.outputs.tag }}" \
+              src/MobileApp-src/build/outputs/apk/debug/sacram.apk \
+              --title "${{ steps.tag.outputs.tag }}" \
+              --notes "$NOTES"
+          else
+            gh release create "${{ steps.tag.outputs.tag }}" \
+              src/MobileApp-src/build/outputs/apk/debug/sacram.apk \
+              --title "${{ steps.tag.outputs.tag }}" \
+              --notes "Automatic build from commit ${{ github.sha }}"
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
