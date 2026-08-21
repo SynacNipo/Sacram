@@ -38,6 +38,13 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.core.content.FileProvider
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : AppCompatActivity() {
 
@@ -68,6 +75,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var chkDisableBandSelector: CheckBox
     private lateinit var tilPort: com.google.android.material.textfield.TextInputLayout
     private lateinit var tilHttpPort: com.google.android.material.textfield.TextInputLayout
+    private lateinit var btnCheckUpdate: Button
+    private lateinit var tvUpdateStatus: TextView
+    private var updateInProgress = false
     private lateinit var tilBand: com.google.android.material.textfield.TextInputLayout
 
     private val saveHandler = Handler(Looper.getMainLooper())
@@ -155,6 +165,11 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnWiki).setOnClickListener { openWiki() }
         findViewById<Button>(R.id.btnBattery).setOnClickListener { requestBatteryExemption() }
         findViewById<Button>(R.id.btnAutostart).setOnClickListener { openAutostartSettings() }
+
+        btnCheckUpdate = findViewById(R.id.btnCheckUpdate)
+        tvUpdateStatus = findViewById(R.id.tvUpdateStatus)
+        tvUpdateStatus.text = "You're running ${BuildConfig.VERSION_NAME} - tap to check for updates."
+        btnCheckUpdate.setOnClickListener { checkForUpdate() }
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -549,6 +564,123 @@ class MainActivity : AppCompatActivity() {
         val intent = Intent(this, ProxyService::class.java).setAction(ProxyService.ACTION_START)
         ContextCompat.startForegroundService(this, intent)
         AppState.running.value = true
+    }
+
+    private fun checkForUpdate() {
+        if (updateInProgress) return
+        updateInProgress = true
+        btnCheckUpdate.isEnabled = false
+        tvUpdateStatus.text = "Checking for updates..."
+        lifecycleScope.launch {
+            try {
+                val latest = withContext(Dispatchers.IO) { fetchLatestTag() }
+                when {
+                    latest == null -> {
+                        tvUpdateStatus.text = "Couldn't reach the update server. Try again later."
+                    }
+                    !isNewer(latest, BuildConfig.VERSION_NAME) -> {
+                        tvUpdateStatus.text = "You're on the latest version (${BuildConfig.VERSION_NAME})."
+                    }
+                    else -> {
+                        tvUpdateStatus.text = "Update available: $latest - downloading..."
+                        val file = withContext(Dispatchers.IO) { downloadApk(latest) }
+                        if (file == null) {
+                            tvUpdateStatus.text = "Download failed. Check your connection and try again."
+                        } else {
+                            tvUpdateStatus.text = "Downloaded $latest - opening installer..."
+                            launchInstaller(file)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                tvUpdateStatus.text = "Update check failed: ${e.message}"
+            } finally {
+                updateInProgress = false
+                btnCheckUpdate.isEnabled = true
+            }
+        }
+    }
+
+    private fun fetchLatestTag(): String? {
+        val conn = URL("https://api.github.com/repos/SynacNipo/Sacram/releases/latest")
+            .openConnection() as HttpURLConnection
+        conn.requestMethod = "GET"
+        conn.setRequestProperty("User-Agent", "Sacram-App")
+        conn.connectTimeout = 10000
+        conn.readTimeout = 10000
+        return try {
+            if (conn.responseCode != 200) return null
+            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            val m = Regex(""""tag_name"\s*:\s*"([^"]+)"""").find(body) ?: return null
+            m.groupValues[1]
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun downloadApk(tag: String): File? {
+        val dir = File(getExternalFilesDir(null), "updates")
+        if (!dir.exists()) dir.mkdirs()
+        val file = File(dir, "sacram.apk")
+        val conn = URL("https://github.com/SynacNipo/Sacram/releases/download/$tag/sacram.apk")
+            .openConnection() as HttpURLConnection
+        conn.requestMethod = "GET"
+        conn.setRequestProperty("User-Agent", "Sacram-App")
+        conn.connectTimeout = 15000
+        conn.readTimeout = 60000
+        return try {
+            if (conn.responseCode !in 200..299) return null
+            val total = conn.contentLengthLong
+            conn.inputStream.use { input ->
+                FileOutputStream(file).use { out ->
+                    val buffer = ByteArray(8192)
+                    var read: Int
+                    var downloaded = 0L
+                    while (input.read(buffer).also { read = it } != -1) {
+                        out.write(buffer, 0, read)
+                        downloaded += read
+                        if (total > 0) {
+                            val pct = (downloaded * 100 / total).toInt()
+                            runOnUiThread {
+                                tvUpdateStatus.text = "Downloading $tag... $pct%"
+                            }
+                        }
+                    }
+                }
+            }
+            file
+        } catch (_: Exception) {
+            null
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private fun launchInstaller(apk: File) {
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            tvUpdateStatus.text = "Couldn't open installer: ${e.message}"
+        }
+    }
+
+    private fun parseVersion(tag: String): Pair<Int, Int>? {
+        val m = Regex("""v?(\d+)\.(\d+)""").find(tag) ?: return null
+        val a = m.groupValues[1].toIntOrNull() ?: return null
+        val b = m.groupValues[2].toIntOrNull() ?: return null
+        return a to b
+    }
+
+    private fun isNewer(latest: String, current: String): Boolean {
+        val a = parseVersion(latest) ?: return false
+        val b = parseVersion(current) ?: return false
+        return a.first > b.first || (a.first == b.first && a.second > b.second)
     }
 
     private fun requestBatteryExemption() {
