@@ -69,8 +69,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etKeepaliveInterval: EditText
     private lateinit var etWifiRestore: EditText
     private lateinit var chkRequireApprovalRestart: CheckBox
+    private lateinit var chkDisableBandSelector: CheckBox
     private lateinit var tilPort: com.google.android.material.textfield.TextInputLayout
     private lateinit var tilHttpPort: com.google.android.material.textfield.TextInputLayout
+    private lateinit var tilBand: com.google.android.material.textfield.TextInputLayout
 
     private val saveHandler = Handler(Looper.getMainLooper())
     private val autosaveRunnable = Runnable { autosave() }
@@ -114,16 +116,24 @@ class MainActivity : AppCompatActivity() {
         etKeepaliveInterval = findViewById(R.id.etKeepaliveInterval)
         etWifiRestore = findViewById(R.id.etWifiRestore)
         chkRequireApprovalRestart = findViewById(R.id.chkRequireApprovalRestart)
+        chkDisableBandSelector = findViewById(R.id.chkDisableBandSelector)
+        tilBand = findViewById(R.id.tilBand)
         etKeepaliveUrl.setText(config.keepaliveUrl)
         etKeepaliveInterval.setText((config.keepaliveIntervalMs / 1000).toString())
         etWifiRestore.setText(config.wifiAutorestoreMin.toString())
         chkRequireApprovalRestart.isChecked = config.requireApprovalRestart
         chkRequireApprovalRestart.setOnCheckedChangeListener { _, _ -> autosave() }
+        chkDisableBandSelector.isChecked = config.disableBandSelector
+        chkDisableBandSelector.setOnCheckedChangeListener { _, _ ->
+            applyBandSelectorVisibility(chkDisableBandSelector.isChecked)
+            autosave()
+        }
         tilPort = findViewById(R.id.tilPort)
         tilHttpPort = findViewById(R.id.tilHttpPort)
         setupProxyTypeDropdown(config.proxyType)
         updatePortVisibility(config.proxyType)
         setupBandDropdown(config.band)
+        applyBandSelectorVisibility(config.disableBandSelector)
         findViewById<TextView>(R.id.tvConfigPath).text =
             "config.txt: ${ConfigManager.externalConfigFile(this).absolutePath}"
 
@@ -263,6 +273,15 @@ class MainActivity : AppCompatActivity() {
             if (position in EXPERIMENTAL_TYPES) 0xFFC62828.toInt()
             else ContextCompat.getColor(this, R.color.text_primary)
         )
+    }
+
+    /**
+     * When the band selector is disabled we hide the band dropdown entirely so
+     * the user can't pick a band that won't be applied. The proxy then falls
+     * back to the default band (see ProxyService).
+     */
+    private fun applyBandSelectorVisibility(disabled: Boolean) {
+        tilBand.visibility = if (disabled) View.GONE else View.VISIBLE
     }
 
     private fun setupBandDropdown(selected: String) {
@@ -415,7 +434,8 @@ class MainActivity : AppCompatActivity() {
                 keepaliveUrl = keepaliveUrl,
                 keepaliveIntervalMs = (intervalSec ?: (prev.keepaliveIntervalMs / 1000)) * 1000L,
                 wifiAutorestoreMin = wifiRestoreMin ?: prev.wifiAutorestoreMin,
-                requireApprovalRestart = chkRequireApprovalRestart.isChecked
+                requireApprovalRestart = chkRequireApprovalRestart.isChecked,
+                disableBandSelector = chkDisableBandSelector.isChecked
             )
         )
         tvSaved.setTextColor(0xFF2E7D32.toInt())
