@@ -263,13 +263,17 @@ class HttpProxyServer(
                     break
                 }
 
-                // The control panel no longer runs on this proxy. If a request is
-                // aimed at one of our own addresses (the old panel URL), point the
-                // client at the dedicated PanelServer port so it doesn't sit behind
-                // the proxy's worker pool. See PanelServer.kt.
+                // The control panel now lives on its own dedicated port. If a request
+                // aimed at one of our own addresses reaches this proxy anyway (e.g. the
+                // browser pushes all traffic through us), forward it straight to the
+                // PanelServer over the local interface instead of bouncing the client
+                // with a "moved" notice. See PanelServer.kt.
                 if (isSelfHostRequest(method, target, headers)) {
-                    servePanelMoved(output, headers)
-                    break
+                    val keepAlive = headers.any { it.startsWith("Connection:", true) && it.contains("keep-alive", true) }
+                    val (_, _, selfPath) = parseAbsoluteUri(target, headers)
+                    forwardPlain(reader, output, method, goIp, panelPort, selfPath.ifEmpty { "/" }, headers, keepAlive, local = true)
+                    if (!keepAlive) break
+                    continue
                 }
 
                 val (host, port, path) = parseAbsoluteUri(target, headers)
@@ -295,7 +299,8 @@ class HttpProxyServer(
         port: Int,
         path: String,
         headers: List<String>,
-        clientKeepAlive: Boolean
+        clientKeepAlive: Boolean,
+        local: Boolean = false
     ) {
         // Retry once on a brand-new upstream socket. The first attempt may reuse a
         // pooled socket that went half-dead on the flaky cellular egress; if it
@@ -311,7 +316,7 @@ class HttpProxyServer(
             var upstream: Socket? = null
             val t0 = System.currentTimeMillis()
             try {
-                upstream = acquireUpstream(host, port, forceFresh = attempt == 1)
+                upstream = acquireUpstream(host, port, forceFresh = attempt == 1, local = local)
                 val upOut = BufferedOutputStream(upstream.getOutputStream(), upstreamBufSize)
 
                 val sb = StringBuilder()
@@ -352,7 +357,7 @@ class HttpProxyServer(
                 val statusLine = readLine(upIn) ?: throw IOException("no response from upstream")
                 val respHeaders = readHeaders(upIn) ?: throw IOException("no response headers")
                 val statusCode = statusLine.split(" ")[1]
-                reportRequest(host, port, method, statusCode, System.currentTimeMillis() - t0)
+                if (!local) reportRequest(host, port, method, statusCode, System.currentTimeMillis() - t0)
 
                 val chunked = respHeaders.any {
                     it.startsWith("Transfer-Encoding:", true) && it.contains("chunked", true)
@@ -393,7 +398,7 @@ class HttpProxyServer(
                 // Retry only for safe methods and only if nothing reached the client.
                 if (attempt == 0 && canRetry && !committed) continue
                 onLog("HTTP fail $host:$port: ${e.message}")
-                reportRequest(host, port, method, "fail", System.currentTimeMillis() - t0)
+                if (!local) reportRequest(host, port, method, "fail", System.currentTimeMillis() - t0)
                 if (!committed) writeSimpleResponse(output, 502, "Bad Gateway - ${e.message}")
                 return
             }
@@ -533,7 +538,15 @@ class HttpProxyServer(
         return null
     }
 
-    private fun acquireUpstream(host: String, port: Int, forceFresh: Boolean = false): Socket {
+    private fun acquireUpstream(host: String, port: Int, forceFresh: Boolean = false, local: Boolean = false): Socket {
+        if (local) {
+            // Self-host (control panel) request: connect over the LAN interface
+            // that owns our own IP rather than the egress network, so the panel is
+            // reachable even when the client reaches us through the proxy.
+            val up = dial(host, port, lanNetwork())
+            if (up == null) throw IOException("could not reach panel $host:$port")
+            return up
+        }
         if (!forceFresh) {
             val key = "$host:$port"
             val pool = connPool[key]
@@ -846,39 +859,15 @@ class HttpProxyServer(
     }
 
     /**
-     * The control panel moved to its own port (see PanelServer). When a request
-     * still hits this proxy for one of our own addresses, tell the client where
-     * it went. We deliberately do NOT 302-redirect absolute-form self-host
-     * requests: a browser configured to push all traffic through this proxy would
-     * just re-request the redirect target here and loop forever. A plain info
-     * page with the new URL (and a link for direct connections) avoids that.
+     * Returns the Network whose link owns [goIp] (the WiFi-Direct LAN), used to
+     * reach the local control panel without going through the cellular egress.
      */
-    private fun servePanelMoved(output: BufferedOutputStream, headers: List<String>) {
-        val panelUrl = "http://$goIp:$panelPort/"
-        val directLink = if (headers.any { it.startsWith("Proxy-Connection:", true) }
-            || headers.any { it.startsWith("Via:", true) }) {
-            // Came through a proxy - the link still has to be opened directly.
-            "<p>Open this address <b>directly</b> in your browser (add <code>$goIp</code> " +
-                "to your proxy bypass list if needed):</p><p><a href=\"$panelUrl\">$panelUrl</a></p>"
-        } else {
-            "<p>The panel has moved. <a href=\"$panelUrl\">Continue to the control panel</a>.</p>"
+    private fun lanNetwork(): Network? {
+        for (n in cm.allNetworks) {
+            val lp = runCatching { cm.getLinkProperties(n) }.getOrNull() ?: continue
+            if (lp.addresses.any { it.hostAddress == goIp }) return n
         }
-        val html = """
-        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Sacram Panel moved</title>
-        <style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:24px}
-        a{color:#58a6ff} code{background:#21262d;padding:1px 5px;border-radius:4px}</style></head><body>
-        <h1>Sacram Control Panel moved</h1>
-        <p>The control panel now runs on its own dedicated port so it stays responsive even when the proxy is busy.</p>
-        $directLink
-        </body></html>
-        """.trimIndent()
-        val bytes = html.toByteArray(Charsets.UTF_8)
-        val header = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n" +
-            "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n"
-        output.write(header.toByteArray(Charsets.UTF_8))
-        output.write(bytes)
-        output.flush()
+        return null
     }
 
     companion object {
