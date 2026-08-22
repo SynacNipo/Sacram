@@ -169,7 +169,9 @@ class PanelServer(
             append("\"clients\":").append(info.clients).append(',')
             append("\"tcpTunnels\":").append(AppState.tcpTunnels.value).append(',')
             append("\"requireApprovalRestart\":").append(cfg.requireApprovalRestart).append(',')
-            append("\"version\":\"").append(BuildConfig.VERSION_NAME).append("\"")
+            append("\"version\":\"").append(BuildConfig.VERSION_NAME).append("\",")
+            append("\"startedAt\":").append(AppState.serviceStartedAt).append(',')
+            append("\"serverNow\":").append(System.currentTimeMillis())
             append('}')
         }
         val bytes = json.toByteArray(Charsets.UTF_8)
@@ -367,19 +369,34 @@ class PanelServer(
         </form>
         <div class="note">SOCKS5: <code>${escapeHtml(info.goIp)}:${cfg.port}</code> &nbsp; HTTP: <code>${escapeHtml(info.goIp)}:${cfg.httpPort}</code></div>
         <script>
+        var sacramOffset=0, sacramStarted=0;
+        function sacramFmtUptime(sec){
+          if(!isFinite(sec)||sec<0)sec=0;
+          var h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=Math.floor(sec%60);
+          return h+'h '+m+'m '+s+'s';
+        }
+        function sacramTick(){
+          if(sacramStarted>0){
+            var e=document.getElementById('v-uptime');
+            if(e) e.textContent=sacramFmtUptime((Date.now()+sacramOffset-sacramStarted)/1000);
+          }
+        }
         async function sacramRefresh(){
           try{
             var r=await fetch('/api/status',{cache:'no-store'});
             var d=await r.json();
             var set=function(id,v){var e=document.getElementById(id);if(e)e.textContent=v;};
+            if(d.startedAt>0){sacramStarted=d.startedAt;sacramOffset=d.serverNow-Date.now();}
             set('v-status',d.status);set('v-running',d.running);set('v-uptime',d.uptime);
             set('v-mode',d.mode);set('v-ssid',d.ssid);set('v-pass',d.passphrase);
             set('v-goip',d.goIp);set('v-clients',d.clients);set('v-tunnels',d.tcpTunnels);
             set('v-panelport',d.panelPort);set('v-ver',d.version);
+            sacramTick();
           }catch(e){}
         }
         sacramRefresh();
         setInterval(sacramRefresh,5000);
+        setInterval(sacramTick,1000);
         </script>
         </body></html>
         """.trimIndent()
