@@ -20,10 +20,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * event names/health stats.
  *
  * Events are buffered and flushed as a single batch (see [flush]) so the
- * collector does ONE store write per flush instead of one per event. This
- * keeps us well under Cloudflare's free KV daily write limit, which otherwise
- * gets exhausted and locks out purging. A background flusher drains the buffer
- * every [FLUSH_MS] so events sent outside the proxy loop are still delivered.
+ * collector does ONE store write per flush instead of one per event. A
+ * background flusher drains the buffer every [FLUSH_MS] so events sent outside
+ * the proxy loop are still delivered promptly (the dashboard is realtime).
  */
 object Telemetry {
 
@@ -31,7 +30,7 @@ object Telemetry {
     private val buffer = mutableListOf<JSONObject>()
     private val flusherRunning = AtomicBoolean(false)
 
-    private const val FLUSH_MS = 300_000L
+    private const val FLUSH_MS = 30_000L
 
     fun batteryInfo(context: Context): Map<String, String> {
         return try {

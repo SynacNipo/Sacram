@@ -303,7 +303,7 @@ class ProxyService : Service() {
                     }
                 }
                 beats++
-                if (beats % 60 == 0) {
+                if (beats % 12 == 0) {
                     val (modeLabel, reportPort) = when {
                         httpMode -> "http" to "${config.httpPort}"
                         hybrid -> "hybrid" to "${config.port}"
