@@ -117,8 +117,11 @@ class PanelServer(
 
             if (method == "POST") {
                 if (target == "/restart") {
-                    onRestartRequest()
+                    // Respond BEFORE restarting: restartProxy() stops this very
+                    // PanelServer (closing the client socket), so if we triggered it
+                    // first the browser would hang on "loading" forever with no reply.
                     writePanelPage(output, restartRequestedHtml())
+                    onRestartRequest()
                     return
                 }
                 val cl = headers.firstOrNull { it.startsWith("Content-Length:", true) }
