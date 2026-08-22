@@ -12,6 +12,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -42,7 +43,11 @@ class Socks5Server(
 
     // Dedicated worker pool so many parallel TCP CONNECT establishments don't
     // queue behind the shared Dispatchers.IO cap and stall the whole proxy.
-    private val workerExecutor = Executors.newFixedThreadPool(256)
+    // Elastic pool: threads are created on demand (one per live connection) and
+    // reclaimed after 60s idle instead of sitting parked - no wasted standby
+    // threads. [concurrencySem] hard-caps concurrent connections at 512.
+    private val workerExecutor = Executors.newCachedThreadPool()
+    private val concurrencySem = Semaphore(512)
     private val proxyDispatcher = workerExecutor.asCoroutineDispatcher()
     private val scope = CoroutineScope(SupervisorJob() + proxyDispatcher)
     private val running = AtomicBoolean(true)
@@ -142,7 +147,14 @@ class Socks5Server(
                     break
                 }
                 client.tcpNoDelay = true
-                scope.launch { handleTcpClient(client) }
+                scope.launch {
+                    concurrencySem.acquire()
+                    try {
+                        handleTcpClient(client)
+                    } finally {
+                        concurrencySem.release()
+                    }
+                }
             }
         } catch (e: Exception) {
             if (running.get()) onLog("TCP server error: $e")
@@ -384,7 +396,14 @@ class Socks5Server(
                 // packet handler - and therefore the very first send() below -
                 // until the session died, so the first datagram of every new UDP
                 // session was silently dropped.
-                scope.launch { runUdpReplyLoop(newSession, sock, pkt.address, pkt.port) }
+                scope.launch {
+                    concurrencySem.acquire()
+                    try {
+                        runUdpReplyLoop(newSession, sock, pkt.address, pkt.port)
+                    } finally {
+                        concurrencySem.release()
+                    }
+                }
             }
             val sessionNow = udpSessions[clientKey] ?: return
             sessionNow.lastActivity = System.currentTimeMillis()

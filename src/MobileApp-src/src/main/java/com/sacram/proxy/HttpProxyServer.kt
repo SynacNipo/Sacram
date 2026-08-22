@@ -14,6 +14,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
 import java.io.BufferedOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -51,7 +52,11 @@ class HttpProxyServer(
     // request kicked off right after closing a heavy tab would wait for a free
     // thread -> the whole proxy "hangs for a few seconds". A private pool lets
     // many connections establish concurrently so the proxy keeps responding.
-    private val workerExecutor = Executors.newFixedThreadPool(256)
+    // Elastic pool: threads are created on demand (one per live connection) and
+    // reclaimed after 60s idle instead of sitting parked - no wasted standby
+    // threads. [concurrencySem] hard-caps concurrent connections at 512.
+    private val workerExecutor = Executors.newCachedThreadPool()
+    private val concurrencySem = Semaphore(512)
     private val scope = CoroutineScope(SupervisorJob() + workerExecutor.asCoroutineDispatcher())
     private val running = AtomicBoolean(true)
     private var serverSocket: ServerSocket? = null
@@ -237,7 +242,14 @@ class HttpProxyServer(
                 }
                 client.tcpNoDelay = true
                 tuneSocket(client)
-                scope.launch { handleClient(client) }
+                scope.launch {
+                    concurrencySem.acquire()
+                    try {
+                        handleClient(client)
+                    } finally {
+                        concurrencySem.release()
+                    }
+                }
             }
         } catch (e: Exception) {
             if (running.get()) onLog("HTTP server error: $e")
