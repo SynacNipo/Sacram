@@ -30,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * SOCKS5 server (RFC 1928) with TCP CONNECT and UDP ASSOCIATE.
@@ -104,6 +105,10 @@ class Socks5Server(
 
     private class UdpSession(val socket: DatagramSocket) {
         var lastActivity = System.currentTimeMillis()
+        // Cumulative bytes for this relay session: tx = client->server (upload),
+        // rx = server->client (download). Reported when the session ends.
+        var tx = 0L
+        var rx = 0L
     }
 
     fun start() {
@@ -293,6 +298,7 @@ class Socks5Server(
         var upstream: Socket? = null
         tunnelCount.incrementAndGet()
         AppState.tcpTunnels.value = tunnelCount.get()
+        val t0 = System.currentTimeMillis()
         try {
             val net = pickNet()
             val addrs = withContext(proxyDispatcher) { resolve(target, net) }
@@ -316,13 +322,16 @@ class Socks5Server(
             upstream = up
             replySuccess(output)
             onLog("TCP $target:$targetPort")
+            val tx = AtomicLong(0L)
+            val rx = AtomicLong(0L)
             val jobIn = scope.launch {
-                try { pump(input, up.getOutputStream()) } finally { runCatching { up.shutdownOutput() } }
+                try { tx.set(pump(input, up.getOutputStream())) } finally { runCatching { up.shutdownOutput() } }
             }
             val jobOut = scope.launch {
-                try { pump(up.getInputStream(), output) } finally { runCatching { client.shutdownOutput() } }
+                try { rx.set(pump(up.getInputStream(), output)) } finally { runCatching { client.shutdownOutput() } }
             }
             jobIn.join(); jobOut.join()
+            reportTunnel(target, targetPort, System.currentTimeMillis() - t0, tx.get(), rx.get())
         } catch (e: Exception) {
             onLog("TCP fail $target:$targetPort: ${e.message}")
             runCatching { replyError(output, 0x05) }
@@ -409,6 +418,7 @@ class Socks5Server(
             sessionNow.lastActivity = System.currentTimeMillis()
             val dstAddr = resolve(dstHost, net).first()
             sessionNow.socket.send(DatagramPacket(payload, payload.size, dstAddr, dstPort))
+            sessionNow.tx += payload.size
         } catch (_: Exception) {
         }
     }
@@ -426,7 +436,10 @@ class Socks5Server(
             for (key in udpSessions.keys()) {
                 val s = udpSessions[key] ?: continue
                 if (now - s.lastActivity > 300_000) {
-                    if (udpSessions.remove(key, s)) runCatching { s.socket.close() }
+                    if (udpSessions.remove(key, s)) {
+                        runCatching { s.socket.close() }
+                        reportUdp(s)
+                    }
                 }
             }
         }
@@ -457,6 +470,7 @@ class Socks5Server(
                 val src = pkt.address
                 val srcPort = pkt.port
                 val dataLen = pkt.length
+                session.rx += dataLen
                 val ipBytes = src.address
                 if (ipBytes.size != 4) continue
                 System.arraycopy(ipBytes, 0, header, 4, 4)
@@ -470,6 +484,7 @@ class Socks5Server(
             }
         } finally {
             runCatching { session.socket.close() }
+            reportUdp(session)
             udpSessions.entries.removeIf { it.value === session }
         }
     }
@@ -508,19 +523,48 @@ class Socks5Server(
         }
     }
 
-    private suspend fun pump(src: InputStream, dst: OutputStream) {
+    /**
+     * Reports a closed SOCKS5 TCP CONNECT tunnel. See [reportTunnel] for the
+     * up/down (sent/received) byte semantics - here [tx] is client->server
+     * (upload) and [rx] is server->client (download).
+     */
+    private fun reportTunnel(target: String, targetPort: Int, dms: Long, tx: Long, rx: Long) {
+        Telemetry.send(
+            context, "socks5_tunnel",
+            mapOf(
+                "port" to "$targetPort",
+                "dms" to "$dms",
+                "up_bytes" to "$tx",
+                "dn_bytes" to "$rx"
+            )
+        )
+    }
+
+    /** Reports cumulative bytes for a SOCKS5 UDP relay session that just ended. */
+    private fun reportUdp(session: UdpSession) {
+        if (session.tx == 0L && session.rx == 0L) return
+        Telemetry.send(
+            context, "socks5_udp",
+            mapOf("up_bytes" to "${session.tx}", "dn_bytes" to "${session.rx}")
+        )
+    }
+
+    private suspend fun pump(src: InputStream, dst: OutputStream): Long {
         val buf = PUMP_BUF.get()
+        var total = 0L
         try {
             while (running.get()) {
                 val n = src.read(buf)
                 if (n <= 0) break
                 dst.write(buf, 0, n)
+                total += n
                 // Only flush when we drained a read (likely end-of-stream or a
                 // short read); otherwise let TCP coalesce into full segments.
                 if (n < buf.size) dst.flush()
             }
         } catch (_: Exception) {
         }
+        return total
     }
 
     companion object {

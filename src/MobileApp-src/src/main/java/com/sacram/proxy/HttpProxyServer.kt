@@ -443,18 +443,14 @@ class HttpProxyServer(
         )
     }
 
-    private val tunnelEventCounter = AtomicInteger(0)
-
     /**
-     * Reports a closed CONNECT tunnel. [upBytes] is the data that flowed from
-     * the upstream server to the client - if it is 0 the tunnel was
-     * established but the site never delivered anything (egress/DNS dead),
-     * which is exactly what a hanging page looks like. Such tunnels are always
-     * reported; healthy ones are sampled.
+     * Reports a closed CONNECT tunnel. [upBytes] is the data the device uploaded
+     * (client -> upstream, i.e. bytes it SENT) and [dnBytes] is what it
+     * downloaded (upstream -> client, bytes RECEIVED). Every byte-bearing
+     * tunnel is reported so the collector's lifetime total is accurate; idle
+     * (0-byte) tunnels are reported too so the dashboard shows dead egress.
      */
     private fun reportTunnel(host: String, port: Int, dms: Long, upBytes: Long, dnBytes: Long, firstByteMs: Long) {
-        val gotData = upBytes > 0L
-        if (gotData && tunnelEventCounter.incrementAndGet() % 5 != 0) return
         Telemetry.send(
             context, "http_tunnel",
             mapOf(
@@ -738,14 +734,18 @@ class HttpProxyServer(
             val upBytes = AtomicLong(0L)
             val dnBytes = AtomicLong(0L)
             coroutineScope {
+                // toServer: client -> upstream = the device's UPLOAD (bytes sent).
+                // toClient: upstream -> client = the device's DOWNLOAD (bytes received).
+                // NOTE: up_bytes must mean upload (device->server) and dn_bytes
+                // download (server->device), matching how the collector labels them.
                 val toServer = async {
-                    pump(input, BufferedOutputStream(up.getOutputStream(), upstreamBufSize)).also { dnBytes.set(it) }
+                    pump(input, BufferedOutputStream(up.getOutputStream(), upstreamBufSize)).also { upBytes.set(it) }
                 }
                 val toClient = async {
                     val timed = FirstByteTimer(up.getInputStream()) {
                         firstByteMs.compareAndSet(-1L, System.currentTimeMillis() - openAt)
                     }
-                    pump(StreamReader(timed), output).also { upBytes.set(it) }
+                    pump(StreamReader(timed), output).also { dnBytes.set(it) }
                 }
                 toServer.await()
                 toClient.await()
