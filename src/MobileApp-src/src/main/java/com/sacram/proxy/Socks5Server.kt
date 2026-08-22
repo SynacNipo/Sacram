@@ -388,7 +388,7 @@ class Socks5Server(
             }
             val sessionNow = udpSessions[clientKey] ?: return
             sessionNow.lastActivity = System.currentTimeMillis()
-            val dstAddr = resolve(dstHost, net)
+            val dstAddr = resolve(dstHost, net).first()
             sessionNow.socket.send(DatagramPacket(payload, payload.size, dstAddr, dstPort))
         } catch (_: Exception) {
         }
