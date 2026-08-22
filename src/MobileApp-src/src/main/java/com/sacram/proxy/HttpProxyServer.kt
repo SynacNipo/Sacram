@@ -865,7 +865,7 @@ class HttpProxyServer(
     private fun lanNetwork(): Network? {
         for (n in cm.allNetworks) {
             val lp = runCatching { cm.getLinkProperties(n) }.getOrNull() ?: continue
-            if (lp.addresses.any { it.hostAddress == goIp }) return n
+            if (lp.linkAddresses.any { it.address.hostAddress == goIp }) return n
         }
         return null
     }
