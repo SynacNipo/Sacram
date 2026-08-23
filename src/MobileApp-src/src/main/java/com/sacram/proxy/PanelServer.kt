@@ -194,12 +194,15 @@ class PanelServer(
         return """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Sacram Panel</title>
-        <style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:24px}
-        a{color:#58a6ff}</style></head><body>
-        <h1>Restart requested</h1>
-        <p>$msg</p>
-        <p><a href="/">Back to panel</a></p>
-        </body></html>
+        ${panelStyle()}
+        </head><body><div class="wrap">
+        <section class="card" style="text-align:center;padding:32px 16px">
+            <div class="card-head" style="margin-bottom:8px">Restart</div>
+            <h1 style="font-size:18px;margin:0 0 10px">Restart requested</h1>
+            <p class="note" style="font-size:13px;color:var(--text-dim)">$msg</p>
+            <a href="/" class="btn" style="display:block;text-decoration:none;text-align:center;box-sizing:border-box">Back to panel</a>
+        </section>
+        </div></body></html>
         """.trimIndent()
     }
 
@@ -215,24 +218,30 @@ class PanelServer(
     private fun pendingPageHtml(): String = """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Sacram Panel</title>
-        <style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:24px}
-        a{color:#58a6ff}</style></head><body>
-        <h1>Change requested</h1>
-        <p>The requested settings change is waiting for the phone owner to approve it <b>inside the Sacram app</b> (10 second window).</p>
-        <p>If the owner ignores or denies it, <b>nothing changes</b>.</p>
-        <p><a href="/">Back to panel</a></p>
-        </body></html>
+        ${panelStyle()}
+        </head><body><div class="wrap">
+        <section class="card" style="text-align:center;padding:32px 16px">
+            <div class="card-head" style="margin-bottom:8px">Settings</div>
+            <h1 style="font-size:18px;margin:0 0 10px">Change requested</h1>
+            <p class="note" style="font-size:13px;color:var(--text-dim)">The requested settings change is waiting for the phone owner to approve it inside the Sacram app (10 second window).</p>
+            <p class="note" style="font-size:13px;color:var(--text-dim)">If the owner ignores or denies it, nothing changes.</p>
+            <a href="/" class="btn" style="display:block;text-decoration:none;text-align:center;box-sizing:border-box">Back to panel</a>
+        </section>
+        </div></body></html>
         """.trimIndent()
 
     private fun savedPageHtml(): String = """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Sacram Panel</title>
-        <style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;padding:24px}
-        a{color:#58a6ff}</style></head><body>
-        <h1>Settings saved</h1>
-        <p>The changes were applied immediately (owner approval not required).</p>
-        <p><a href="/">Back to panel</a></p>
-        </body></html>
+        ${panelStyle()}
+        </head><body><div class="wrap">
+        <section class="card" style="text-align:center;padding:32px 16px">
+            <div class="card-head" style="margin-bottom:8px">Settings</div>
+            <h1 style="font-size:18px;margin:0 0 10px">Settings saved</h1>
+            <p class="note" style="font-size:13px;color:var(--text-dim)">The changes were applied immediately (owner approval not required).</p>
+            <a href="/" class="btn" style="display:block;text-decoration:none;text-align:center;box-sizing:border-box">Back to panel</a>
+        </section>
+        </div></body></html>
         """.trimIndent()
 
     private fun readExact(input: InputStream, n: Int): String {
@@ -316,58 +325,73 @@ class PanelServer(
         return """
         <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
         <title>Sacram Panel</title>
-        <style>
-        body{font-family:system-ui,sans-serif;margin:0;background:#0d1117;color:#e6edf3;padding:16px}
-        h1{font-size:20px;margin:0 0 12px}.card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px;margin-bottom:14px}
-        .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #21262d}
-        .row:last-child{border-bottom:0}.k{color:#8b949e}.v{font-weight:600;word-break:break-all;text-align:right;max-width:60%}
-        label{display:block;margin:10px 0 4px;color:#8b949e;font-size:13px}
-        input[type=text],input[type=number]{width:100%;box-sizing:border-box;padding:9px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:14px}
-        .checkbox{display:flex;align-items:center;gap:8px;margin:10px 0}
-        button{width:100%;padding:12px;border:0;border-radius:8px;background:#238636;color:#fff;font-size:15px;font-weight:600;margin-top:6px}
-        button.restart{background:#1f6feb}
-        .note{font-size:12px;color:#8b949e;margin-top:8px}
-        code{background:#21262d;padding:1px 5px;border-radius:4px}
-        </style></head><body>
-        <h1>Sacram Control Panel</h1>
-        <div class="card">
-            <div class="row"><span class="k">Status</span><span class="v" id="v-status">${escapeHtml(AppState.status.value)}</span></div>
-            <div class="row"><span class="k">Running</span><span class="v" id="v-running">${AppState.running.value}</span></div>
-            <div class="row"><span class="k">Uptime</span><span class="v" id="v-uptime">$uptimeStr</span></div>
-            <div class="row"><span class="k">Mode</span><span class="v" id="v-mode">$mode</span></div>
-            <div class="row"><span class="k">SSID</span><span class="v" id="v-ssid">${escapeHtml(info.ssid)}</span></div>
-            <div class="row"><span class="k">Password</span><span class="v" id="v-pass">${escapeHtml(info.passphrase)}</span></div>
-            <div class="row"><span class="k">Group IP</span><span class="v" id="v-goip">${escapeHtml(info.goIp)}</span></div>
-            <div class="row"><span class="k">Clients</span><span class="v" id="v-clients">${info.clients}</span></div>
-            <div class="row"><span class="k">TCP tunnels open</span><span class="v" id="v-tunnels">${AppState.tcpTunnels.value}</span></div>
-            <div class="row"><span class="k">Panel port</span><span class="v" id="v-panelport">$port</span></div>
-            <div class="row"><span class="k">Version</span><span class="v" id="v-ver">${BuildConfig.VERSION_NAME}</span></div>
-        </div>
-        <form method="post" action="/restart">
-            <div class="card">
-                <button type="submit" class="restart">Restart proxy</button>
-                <div class="note">$restartNote</div>
+        ${panelStyle()}
+        </head><body>
+        <div class="wrap">
+        <header class="topbar">
+            <div class="brand"><span class="dot" id="v-dot"></span><span class="brand-name">SACRAM</span><span class="brand-sub">control panel</span></div>
+            <div class="ver">v${BuildConfig.VERSION_NAME}</div>
+        </header>
+
+        <section class="card">
+            <div class="card-head">Status</div>
+            <div class="grid">
+                <div class="stat"><div class="stat-k">Status</div><div class="stat-v" id="v-status">${escapeHtml(AppState.status.value)}</div></div>
+                <div class="stat"><div class="stat-k">Running</div><div class="stat-v" id="v-running">${AppState.running.value}</div></div>
+                <div class="stat"><div class="stat-k">Uptime</div><div class="stat-v mono" id="v-uptime">$uptimeStr</div></div>
+                <div class="stat"><div class="stat-k">Mode</div><div class="stat-v"><span class="pill" id="v-mode">$mode</span></div></div>
+                <div class="stat"><div class="stat-k">Clients</div><div class="stat-v" id="v-clients">${info.clients}</div></div>
+                <div class="stat"><div class="stat-k">TCP tunnels</div><div class="stat-v" id="v-tunnels">${AppState.tcpTunnels.value}</div></div>
             </div>
+        </section>
+
+        <section class="card">
+            <div class="card-head">Network</div>
+            <div class="list">
+                <div class="li"><span class="li-k">SSID</span><span class="li-v mono" id="v-ssid">${escapeHtml(info.ssid)}</span></div>
+                <div class="li"><span class="li-k">Password</span><span class="li-v mono" id="v-pass">${escapeHtml(info.passphrase)}</span></div>
+                <div class="li"><span class="li-k">Group IP</span><span class="li-v mono" id="v-goip">${escapeHtml(info.goIp)}</span></div>
+                <div class="li"><span class="li-k">Panel port</span><span class="li-v mono" id="v-panelport">$port</span></div>
+                <div class="li"><span class="li-k">SOCKS5</span><span class="li-v mono">${escapeHtml(info.goIp)}:${cfg.port}</span></div>
+                <div class="li"><span class="li-k">HTTP</span><span class="li-v mono">${escapeHtml(info.goIp)}:${cfg.httpPort}</span></div>
+            </div>
+        </section>
+
+        <form method="post" action="/restart">
+            <section class="card">
+                <div class="card-head">Restart</div>
+                <button type="submit" class="btn btn-accent">Restart proxy</button>
+                <p class="note">$restartNote</p>
+            </section>
         </form>
+
         <form method="post" action="/">
-            <div class="card">
-                <label>Keep-alive URL</label>
-                <input type="text" name="keepalive_url" value="${escapeHtml(cfg.keepaliveUrl)}">
-                <label>Keep-alive interval (seconds, min 15)</label>
-                <input type="number" name="keepalive_interval" value="${cfg.keepaliveIntervalMs / 1000}" min="15">
-                <div class="checkbox"><input type="checkbox" name="telemetry_enabled" value="on" $telChecked><span>Telemetry enabled</span></div>
-                <div class="checkbox"><input type="checkbox" name="panel_enabled" value="on" $panelChecked><span>Control panel enabled</span></div>
-                <label>WiFi Band</label>
-                <select name="band" style="width:100%;padding:9px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:14px">
+            <section class="card">
+                <div class="card-head">Settings</div>
+
+                <label class="field-label" for="f-keepalive-url">Keep-alive URL</label>
+                <input class="field" id="f-keepalive-url" type="text" name="keepalive_url" value="${escapeHtml(cfg.keepaliveUrl)}">
+
+                <label class="field-label" for="f-keepalive-interval">Keep-alive interval &mdash; seconds, min 15</label>
+                <input class="field" id="f-keepalive-interval" type="number" name="keepalive_interval" value="${cfg.keepaliveIntervalMs / 1000}" min="15">
+
+                <label class="field-label" for="f-band">WiFi band</label>
+                <select class="field" id="f-band" name="band">
                     <option value="2.4"${if (cfg.band == "2.4") " selected" else ""}>2.4 GHz (default)</option>
                     <option value="5"${if (cfg.band == "5") " selected" else ""}>5 GHz</option>
                     <option value="auto"${if (cfg.band == "auto") " selected" else ""}>Auto</option>
                 </select>
-                <button type="submit">Save settings</button>
-                <div class="note">Changes apply live. The panel runs on its own port ($port) and is reachable by anyone on the WiFi Direct network. If your browser sends all traffic through the proxy, add <code>${escapeHtml(info.goIp)}</code> to its proxy bypass list to reach this panel directly.</div>
-            </div>
+
+                <label class="switch-row"><span>Telemetry enabled</span><input type="checkbox" name="telemetry_enabled" value="on" $telChecked><span class="switch"></span></label>
+                <label class="switch-row"><span>Control panel enabled</span><input type="checkbox" name="panel_enabled" value="on" $panelChecked><span class="switch"></span></label>
+
+                <button type="submit" class="btn">Save settings</button>
+                <p class="note">Changes apply live. The panel runs on its own port ($port) and is reachable by anyone on the WiFi Direct network. If your browser sends all traffic through the proxy, add <code>${escapeHtml(info.goIp)}</code> to its proxy bypass list to reach this panel directly.</p>
+            </section>
         </form>
-        <div class="note">SOCKS5: <code>${escapeHtml(info.goIp)}:${cfg.port}</code> &nbsp; HTTP: <code>${escapeHtml(info.goIp)}:${cfg.httpPort}</code></div>
+
+        <footer class="foot">Sacram &mdash; local control panel, no external access</footer>
+        </div>
         <script>
         var sacramOffset=0, sacramStarted=0;
         function sacramFmtUptime(sec){
@@ -381,6 +405,10 @@ class PanelServer(
             if(e) e.textContent=sacramFmtUptime((Date.now()+sacramOffset-sacramStarted)/1000);
           }
         }
+        function sacramDot(running){
+          var d=document.getElementById('v-dot');
+          if(d) d.className='dot'+(running===true||running==='true'?' on':' off');
+        }
         async function sacramRefresh(){
           try{
             var r=await fetch('/api/status',{cache:'no-store'});
@@ -390,7 +418,8 @@ class PanelServer(
             set('v-status',d.status);set('v-running',d.running);set('v-uptime',d.uptime);
             set('v-mode',d.mode);set('v-ssid',d.ssid);set('v-pass',d.passphrase);
             set('v-goip',d.goIp);set('v-clients',d.clients);set('v-tunnels',d.tcpTunnels);
-            set('v-panelport',d.panelPort);set('v-ver',d.version);
+            set('v-panelport',d.panelPort);
+            sacramDot(d.running);
             sacramTick();
           }catch(e){}
         }
@@ -401,6 +430,89 @@ class PanelServer(
         </body></html>
         """.trimIndent()
     }
+
+    /**
+     * Shared design tokens for the panel: dark technical theme, monospace
+     * accents for network values, a signal-green status dot. Kept as one
+     * block so every page (main, restart, pending, saved) looks consistent.
+     */
+    private fun panelStyle(): String = """
+        <style>
+        :root{
+          --bg:#0a0c10; --bg-raised:#12151b; --line:#232830;
+          --text:#e8ecf1; --text-dim:#8891a0; --text-faint:#5b6373;
+          --accent:#3ddc84; --accent-dim:#1f7a4a;
+          --blue:#4f8ef7;
+          --mono:'SF Mono',ui-monospace,'Roboto Mono',Consolas,monospace;
+          --sans:-apple-system,system-ui,'Segoe UI',Roboto,sans-serif;
+        }
+        *{box-sizing:border-box}
+        body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+          -webkit-font-smoothing:antialiased}
+        .wrap{max-width:640px;margin:0 auto;padding:20px 16px 40px}
+        .mono{font-family:var(--mono)}
+
+        .topbar{display:flex;align-items:baseline;justify-content:space-between;
+          padding:4px 2px 18px;border-bottom:1px solid var(--line);margin-bottom:18px}
+        .brand{display:flex;align-items:baseline;gap:8px}
+        .brand-name{font-weight:700;font-size:17px;letter-spacing:0.06em}
+        .brand-sub{color:var(--text-faint);font-size:12px}
+        .ver{color:var(--text-faint);font-size:12px;font-family:var(--mono)}
+        .dot{width:8px;height:8px;border-radius:50%;background:var(--text-faint);
+          display:inline-block;position:relative;top:-1px;margin-right:2px}
+        .dot.on{background:var(--accent);box-shadow:0 0 0 3px rgba(61,220,132,0.15)}
+        .dot.off{background:#f0654f;box-shadow:0 0 0 3px rgba(240,101,79,0.15)}
+
+        .card{background:var(--bg-raised);border:1px solid var(--line);border-radius:12px;
+          padding:16px;margin-bottom:14px}
+        .card-head{font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;
+          color:var(--text-faint);margin-bottom:12px}
+
+        .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+        .stat-k{font-size:11px;color:var(--text-faint);margin-bottom:3px}
+        .stat-v{font-size:15px;font-weight:600}
+
+        .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;
+          border-radius:999px;background:rgba(61,220,132,0.12);color:var(--accent);
+          border:1px solid rgba(61,220,132,0.25)}
+
+        .list{display:flex;flex-direction:column}
+        .li{display:flex;justify-content:space-between;align-items:center;gap:10px;
+          padding:9px 0;border-bottom:1px solid var(--line)}
+        .li:last-child{border-bottom:0}
+        .li-k{color:var(--text-dim);font-size:13px;flex-shrink:0}
+        .li-v{font-size:13px;font-weight:600;text-align:right;word-break:break-all}
+
+        .field-label{display:block;font-size:12px;color:var(--text-dim);margin:14px 0 6px}
+        .field{width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--line);
+          background:var(--bg);color:var(--text);font-size:14px;font-family:var(--sans)}
+        .field:focus{outline:none;border-color:var(--accent-dim)}
+        select.field{appearance:none;-webkit-appearance:none}
+
+        .switch-row{display:flex;align-items:center;justify-content:space-between;
+          padding:10px 0;font-size:13px;color:var(--text);cursor:pointer}
+        .switch-row input{position:absolute;opacity:0;width:0;height:0}
+        .switch{position:relative;width:38px;height:22px;border-radius:999px;background:var(--line);
+          transition:background .15s;flex-shrink:0}
+        .switch::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;
+          border-radius:50%;background:var(--text-dim);transition:transform .15s,background .15s}
+        .switch-row input:checked + .switch{background:var(--accent-dim)}
+        .switch-row input:checked + .switch::after{transform:translateX(16px);background:var(--accent)}
+        .switch-row input:focus-visible + .switch{outline:2px solid var(--accent);outline-offset:2px}
+
+        .btn{width:100%;padding:12px;border:0;border-radius:8px;background:var(--accent);
+          color:#04140b;font-size:14px;font-weight:700;margin-top:14px;cursor:pointer}
+        .btn:hover{filter:brightness(1.08)}
+        .btn-accent{background:var(--blue);color:#0a1220}
+
+        .note{font-size:12px;line-height:1.5;color:var(--text-faint);margin:10px 0 0}
+        code{background:var(--line);padding:1px 6px;border-radius:4px;font-family:var(--mono);font-size:11px}
+
+        .foot{text-align:center;color:var(--text-faint);font-size:11px;margin-top:22px}
+
+        @media(max-width:420px){.grid{grid-template-columns:repeat(2,1fr)}}
+        </style>
+    """.trimIndent()
 
     private fun escapeHtml(s: String): String = s
         .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
