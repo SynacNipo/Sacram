@@ -15,7 +15,7 @@ data class AppConfig(
     val ssid: String,
     val password: String,
     val port: Int,
-    val band: String = "2.4",
+    val band: String = "5",
     val disableBandSelector: Boolean = false,
     val proxyMode: String = "socks5",
     val proxyType: Int = 0, // 0=Auto (SOCKS5+HTTP) [default], 1=SOCKS5, 2=HTTP, 3=Hybrid (SOCKS5+HTTP)

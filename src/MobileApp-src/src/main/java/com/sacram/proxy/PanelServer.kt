@@ -377,8 +377,8 @@ class PanelServer(
 
                 <label class="field-label" for="f-band">WiFi band</label>
                 <select class="field" id="f-band" name="band">
-                    <option value="2.4"${if (cfg.band == "2.4") " selected" else ""}>2.4 GHz (default)</option>
-                    <option value="5"${if (cfg.band == "5") " selected" else ""}>5 GHz</option>
+                    <option value="2.4"${if (cfg.band == "2.4") " selected" else ""}>2.4 GHz</option>
+                    <option value="5"${if (cfg.band == "5") " selected" else ""}>5 GHz (default)</option>
                     <option value="auto"${if (cfg.band == "auto") " selected" else ""}>Auto</option>
                 </select>
 
