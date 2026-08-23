@@ -27,8 +27,8 @@
 >
 > Sacram is **stable** for its core use case: a systemwide TCP+UDP proxy over a
 > WiFi Direct hotspot. The Android app, HTTP (TCP) and SOCKS5 (TCP) proxies are
-> validated. The Windows/Sing-box TUN client is still being refined — verify
-> end-to-end on your setup before relying on it for anything critical.
+> validated.
+> verify end-to-end on your setup before relying on it for anything critical.
 
 ## Status
 
