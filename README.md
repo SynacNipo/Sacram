@@ -40,7 +40,7 @@
 | Desktop client   | Working       | Use a SOCKS5 client like **Proxifier** pointed at the phone (port `1080`) |
 | HTTP (TCP) proxy | Working       | Plain HTTP + CONNECT tunnels, full-duplex                          |
 | SOCKS5 (TCP)     | Working       | Runs in Auto mode alongside HTTP; validated in hybrid use          |
-| SOCKS5 UDP       | Working       | UDP ASSOCIATE works (RFC 1928); validated end-to-end               |
+| SOCKS5 UDP       | Working       | UDP ASSOCIATE works (RFC 1928); validated end-to-end. Advanced use only — for users who know what they're doing |
 
 ---
 
