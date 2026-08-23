@@ -6,7 +6,7 @@ GitHub Wiki: github.com/SynacNipo/Sacram/wiki
 Short version:
 1. START proxy - the app becomes a WiFi Direct hotspot.
 2. Connect your PC/device to the SSID shown on screen.
-3. On the PC use the bundled sing-box client (SacramConnect.bat)
-   pointing to the socks5 address shown above - TUN is required for
-   systemwide TCP + UDP (games, DNS, UDP apps).</string>
+ 3. On the PC point a SOCKS5 client like Proxifier at the socks5
+   address shown above (port 1080) - this gives systemwide TCP + UDP
+   (games, DNS, UDP apps).</string>
 </resources>

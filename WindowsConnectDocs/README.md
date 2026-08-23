@@ -15,8 +15,8 @@ An HTTP proxy is **TCP only**. Anything that needs **UDP** will NOT work:
 ✅ **Works**: browsing the web, downloads, videos (YouTube/Netflix),
 general app HTTP(S) traffic.
 
-If you need UDP too, use the SOCKS5 + TUN method instead (see the bundled
-sing-box client, `SacramConnect.bat`, with TUN mode).
+If you need UDP too, use the SOCKS5 method instead (point a SOCKS5 client
+like **Proxifier** at the phone's address on port `1080`).
 
 ## Steps
 

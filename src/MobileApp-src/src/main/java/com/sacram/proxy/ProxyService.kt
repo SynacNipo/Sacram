@@ -272,6 +272,8 @@ class ProxyService : Service() {
             // client count poller + group-keepalive + health heartbeat (every 5 min)
             var beats = 0
             var groupRecreateGuard = false
+            var groupRecreateCount = 0
+            val groupRecreateMax = 21
             while (currentCoroutineContext().isActive && started.get()) {
                 delay(5000)
                 p2p.requestGroupInfo { g ->
@@ -286,9 +288,16 @@ class ProxyService : Service() {
                         // RUNNING while 192.168.49.1 is unreachable) is worse: the
                         // client's browser just redials on the next request anyway.
                         if (!groupRecreateGuard && started.get()) {
+                            if (groupRecreateCount >= groupRecreateMax) {
+                                // Already retried the cap number of times; stop
+                                // spamming recreation + telemetry and leave it dead.
+                                AppState.status.value = "RUNNING - AP gave up re-forming (max $groupRecreateMax retries)"
+                                return@requestGroupInfo
+                            }
                             groupRecreateGuard = true
-                            Log.w(TAG, "WiFi Direct group lost (inactivity) - recreating to keep AP alive")
-                            Telemetry.send(this, "p2p_group_recreated", mapOf("reason" to "inactivity_drop"))
+                            groupRecreateCount++
+                            Log.w(TAG, "WiFi Direct group lost (inactivity) - recreating to keep AP alive (retry $groupRecreateCount/$groupRecreateMax)")
+                            Telemetry.send(this, "p2p_group_recreated", mapOf("reason" to "inactivity_drop", "retry" to "$groupRecreateCount"))
                             scope.launch {
                                 recreateGroup(p2p, config)
                                 groupRecreateGuard = false

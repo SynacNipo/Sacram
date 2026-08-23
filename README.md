@@ -26,19 +26,21 @@
 > **STABLE**
 >
 > Sacram is **stable** for its core use case: a systemwide TCP+UDP proxy over a
-> WiFi Direct hotspot. The Android app, HTTP (TCP) and SOCKS5 (TCP) proxies are
-> validated.
-> verify end-to-end on your setup before relying on it for anything critical.
+> WiFi Direct hotspot. The Android app, HTTP (TCP), SOCKS5 (TCP) and SOCKS5 UDP
+> (UDP ASSOCIATE) proxies are all validated end-to-end. Pair it with any SOCKS5
+> client on the PC (e.g. **Proxifier**) — verify on your setup before relying on
+> it for anything critical.
 
 ## Status
 
 | Component        | Status        | Notes                                                              |
 |------------------|---------------|--------------------------------------------------------------------|
-| Android app      | Stable        | Auto mode (HTTP+SOCKS5 TCP) validated over WiFi Direct |
-| Connectivity     | Working (TCP) | PC reaches the internet via the phone proxy over WiFi Direct       |
+| Android app      | Stable        | Auto mode (HTTP+SOCKS5 TCP+UDP) validated over WiFi Direct |
+| Connectivity     | Working       | PC reaches the internet via the phone proxy over WiFi Direct       |
+| Desktop client   | Working       | Use a SOCKS5 client like **Proxifier** pointed at the phone (port `1080`) |
 | HTTP (TCP) proxy | Working       | Plain HTTP + CONNECT tunnels, full-duplex                          |
 | SOCKS5 (TCP)     | Working       | Runs in Auto mode alongside HTTP; validated in hybrid use          |
-| SOCKS5 UDP       | Working        | UDP ASSOCIATE works, only use this if you know what you're doing/ a advanced user |
+| SOCKS5 UDP       | Working       | UDP ASSOCIATE works (RFC 1928); validated end-to-end               |
 
 ---
 
@@ -56,8 +58,8 @@ Android app (Kotlin) that turns any spare Android phone into a **WiFi Direct hot
    page. Reach it directly at `http://<phone-ip>:<panel_port>/` (e.g.
    `http://192.168.49.1:8283/`). Because it is on its own port, a browser that sends
    *all* traffic through the proxy must open it directly (or add the phone IP to the
-   browser's proxy bypass list); the sing-box TUN client already excludes the phone
-   subnet, so direct access works there.
+    browser's proxy bypass list); a SOCKS5 client like Proxifier can be set to
+    bypass the phone subnet, so direct access to the panel works there.
 4. Lets a connected PC / device reach the internet through the phone's data connection
 5. Runs as an **aggressive foreground service** (wakelocks, WiFi lock, `START_STICKY`, battery-exemption + autostart shortcuts)
 
