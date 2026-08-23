@@ -34,12 +34,11 @@
 
 | Component        | Status        | Notes                                                              |
 |------------------|---------------|--------------------------------------------------------------------|
-| Android app      | Stable        | Auto mode (HTTP+SOCKS5 TCP) validated over WiFi Direct; SOCKS5 UDP paused |
+| Android app      | Stable        | Auto mode (HTTP+SOCKS5 TCP) validated over WiFi Direct |
 | Connectivity     | Working (TCP) | PC reaches the internet via the phone proxy over WiFi Direct       |
-| Windows client   | Alpha         | `SacramConnect.bat` (sing-box TUN) launches; DNS/routing handled by sing-box TUN (verify end-to-end) |
 | HTTP (TCP) proxy | Working       | Plain HTTP + CONNECT tunnels, full-duplex                          |
 | SOCKS5 (TCP)     | Working       | Runs in Auto mode alongside HTTP; validated in hybrid use          |
-| SOCKS5 UDP       | Paused        | UDP ASSOCIATE exists; dev paused, not actively worked on           |
+| SOCKS5 UDP       | Working        | UDP ASSOCIATE works, only use this if you know what you're doing/ a advanced user |
 
 ---
 
