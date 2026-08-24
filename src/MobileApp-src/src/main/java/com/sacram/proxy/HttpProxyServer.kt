@@ -512,7 +512,7 @@ class HttpProxyServer(
                 ?.toList().orEmpty()
         }
         val addrs = try {
-            future.get(dnsTimeoutMs, TimeUnit.MILLISECONDS)
+            future.get(dnsTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
         } catch (e: TimeoutException) {
             throw IOException("DNS resolution timed out for $host on egress network $net", e)
         } catch (e: Exception) {
