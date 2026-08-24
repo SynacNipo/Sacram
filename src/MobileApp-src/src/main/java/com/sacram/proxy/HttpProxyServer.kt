@@ -26,6 +26,8 @@ import java.net.Socket
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -58,6 +60,9 @@ class HttpProxyServer(
     private val workerExecutor = Executors.newCachedThreadPool()
     private val concurrencySem = Semaphore(512)
     private val scope = CoroutineScope(SupervisorJob() + workerExecutor.asCoroutineDispatcher())
+    private val DNS_POOL_SIZE = 16
+    private val dnsExecutor = Executors.newFixedThreadPool(DNS_POOL_SIZE)
+    private val dnsTimeoutMs = 5_000
     private val running = AtomicBoolean(true)
     private var serverSocket: ServerSocket? = null
     private var tcpJob: Job? = null
@@ -217,6 +222,7 @@ class HttpProxyServer(
         tcpJob?.cancel()
         scope.cancel()
         runCatching { workerExecutor.shutdownNow() }
+        runCatching { dnsExecutor.shutdownNow() }
     }
 
     private fun tuneSocket(sock: Socket) {
@@ -501,8 +507,17 @@ class HttpProxyServer(
         // for still resolves. The system default route points at the phone's real
         // internet path (cellular / station WiFi), never the WiFi-Direct interface,
         // which has no DNS server of its own - so this is safe.
-        val addrs = (if (net != null) net.getAllByName(host) else InetAddress.getAllByName(host))
-            ?.toList().orEmpty()
+        val future = dnsExecutor.submit<List<InetAddress>> {
+            (if (net != null) net.getAllByName(host) else InetAddress.getAllByName(host))
+                ?.toList().orEmpty()
+        }
+        val addrs = try {
+            future.get(dnsTimeoutMs, TimeUnit.MILLISECONDS)
+        } catch (e: TimeoutException) {
+            throw IOException("DNS resolution timed out for $host on egress network $net", e)
+        } catch (e: Exception) {
+            throw IOException("DNS resolution failed for $host on egress network $net", e)
+        }
         if (addrs.isEmpty()) throw IOException("DNS resolution failed for $host on egress network $net")
         // Try IPv4 first. Many mobile carriers have broken/blackholed IPv6 egress,
         // so connecting to the first (often IPv6) address hangs for the full

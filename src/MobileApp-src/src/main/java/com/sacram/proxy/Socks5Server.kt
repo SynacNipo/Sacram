@@ -29,6 +29,8 @@ import java.net.Socket
 import java.net.SocketTimeoutException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -55,6 +57,9 @@ class Socks5Server(
     private val tcpSem = Semaphore(512)
     private val udpSem = Semaphore(1024)
     private val proxyDispatcher = workerExecutor.asCoroutineDispatcher()
+    private val DNS_POOL_SIZE = 16
+    private val dnsExecutor = Executors.newFixedThreadPool(DNS_POOL_SIZE)
+    private val dnsTimeoutMs = 5_000
     private val scope = CoroutineScope(SupervisorJob() + proxyDispatcher)
     private val running = AtomicBoolean(true)
     private var serverSocket: ServerSocket? = null
@@ -142,6 +147,7 @@ class Socks5Server(
         udpSweepJob?.cancel()
         scope.cancel()
         runCatching { workerExecutor.shutdownNow() }
+        runCatching { dnsExecutor.shutdownNow() }
     }
 
     private suspend fun runTcpServer() {
@@ -240,7 +246,17 @@ class Socks5Server(
         // Resolve ONLY on the egress network the socket will be bound to. The
         // default resolver would query the WiFi-Direct interface (no DNS/internet)
         // when the Group Owner, producing an unreachable address.
-        val addrs = net?.getAllByName(host)?.toList().orEmpty()
+        val future = dnsExecutor.submit<List<InetAddress>> {
+            (if (net != null) net.getAllByName(host) else InetAddress.getAllByName(host))
+                ?.toList().orEmpty()
+        }
+        val addrs = try {
+            future.get(dnsTimeoutMs, TimeUnit.MILLISECONDS)
+        } catch (e: TimeoutException) {
+            throw IOException("DNS resolution timed out for $host on egress network $net", e)
+        } catch (e: Exception) {
+            throw IOException("DNS resolution failed for $host on egress network $net", e)
+        }
         if (addrs.isEmpty()) throw IOException("DNS resolution failed for $host on egress network $net")
         // Try IPv4 first: carriers often have broken/blackholed IPv6 egress, so the
         // first (IPv6) address can hang. Prefer IPv4 to avoid multi-second stalls.
