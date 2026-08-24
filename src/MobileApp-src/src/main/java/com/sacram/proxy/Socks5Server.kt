@@ -46,9 +46,13 @@ class Socks5Server(
     // queue behind the shared Dispatchers.IO cap and stall the whole proxy.
     // Elastic pool: threads are created on demand (one per live connection) and
     // reclaimed after 60s idle instead of sitting parked - no wasted standby
-    // threads. [concurrencySem] hard-caps concurrent connections at 512.
+    // threads. Separate semaphores for TCP and UDP so that long-lived UDP
+    // plumbing (relay loops + associate control reads) can never starve new
+    // TCP CONNECT establishments of a slot. [tcpSem] caps concurrent TCP tunnels
+    // at 512; [udpSem] caps concurrent UDP relay loops at 1024 (= maxUdpSessions).
     private val workerExecutor = Executors.newCachedThreadPool()
-    private val concurrencySem = Semaphore(512)
+    private val tcpSem = Semaphore(512)
+    private val udpSem = Semaphore(1024)
     private val proxyDispatcher = workerExecutor.asCoroutineDispatcher()
     private val scope = CoroutineScope(SupervisorJob() + proxyDispatcher)
     private val running = AtomicBoolean(true)
@@ -152,14 +156,7 @@ class Socks5Server(
                     break
                 }
                 client.tcpNoDelay = true
-                scope.launch {
-                    concurrencySem.acquire()
-                    try {
-                        handleTcpClient(client)
-                    } finally {
-                        concurrencySem.release()
-                    }
-                }
+                scope.launch { handleTcpClient(client) }
             }
         } catch (e: Exception) {
             if (running.get()) onLog("TCP server error: $e")
@@ -295,51 +292,56 @@ class Socks5Server(
         target: String,
         targetPort: Int
     ) {
-        var upstream: Socket? = null
-        tunnelCount.incrementAndGet()
-        AppState.tcpTunnels.value = tunnelCount.get()
-        val t0 = System.currentTimeMillis()
-        try {
-            val net = pickNet()
-            val addrs = withContext(proxyDispatcher) { resolve(target, net) }
-            var up: Socket? = null
-            var lastErr: String? = null
-            for (a in addrs) {
-                val sock = Socket()
-                try {
-                    net?.bindSocket(sock)
-                    sock.connect(InetSocketAddress(a, targetPort), 8000)
-                    sock.tcpNoDelay = true
-                    sock.soTimeout = tunnelIdleTimeoutMs
-                    up = sock
-                    break
-                } catch (e: Exception) {
-                    runCatching { sock.close() }
-                    lastErr = e.message
+        // Bound by [tcpSem] for the whole tunnel lifetime so a flood of long-lived
+        // TCP CONNECTs can never exhaust the slots needed by UDP relay loops
+        // (which use [udpSem]). The handshake in handleTcpClient runs unbound.
+        tcpSem.withPermit {
+            var upstream: Socket? = null
+            tunnelCount.incrementAndGet()
+            AppState.tcpTunnels.value = tunnelCount.get()
+            val t0 = System.currentTimeMillis()
+            try {
+                val net = pickNet()
+                val addrs = withContext(proxyDispatcher) { resolve(target, net) }
+                var up: Socket? = null
+                var lastErr: String? = null
+                for (a in addrs) {
+                    val sock = Socket()
+                    try {
+                        net?.bindSocket(sock)
+                        sock.connect(InetSocketAddress(a, targetPort), 8000)
+                        sock.tcpNoDelay = true
+                        sock.soTimeout = tunnelIdleTimeoutMs
+                        up = sock
+                        break
+                    } catch (e: Exception) {
+                        runCatching { sock.close() }
+                        lastErr = e.message
+                    }
                 }
+                if (up == null) throw IOException("could not connect to $target:$targetPort via $net : $lastErr")
+                upstream = up
+                replySuccess(output)
+                onLog("TCP $target:$targetPort")
+                val tx = AtomicLong(0L)
+                val rx = AtomicLong(0L)
+                val jobIn = scope.launch {
+                    try { tx.set(pump(input, up.getOutputStream())) } finally { runCatching { up.shutdownOutput() } }
+                }
+                val jobOut = scope.launch {
+                    try { rx.set(pump(up.getInputStream(), output)) } finally { runCatching { client.shutdownOutput() } }
+                }
+                jobIn.join(); jobOut.join()
+                reportTunnel(target, targetPort, System.currentTimeMillis() - t0, tx.get(), rx.get())
+            } catch (e: Exception) {
+                onLog("TCP fail $target:$targetPort: ${e.message}")
+                runCatching { replyError(output, 0x05) }
+            } finally {
+                runCatching { client.close() }
+                runCatching { upstream?.close() }
+                val left = tunnelCount.decrementAndGet()
+                AppState.tcpTunnels.value = if (left < 0) 0 else left
             }
-            if (up == null) throw IOException("could not connect to $target:$targetPort via $net : $lastErr")
-            upstream = up
-            replySuccess(output)
-            onLog("TCP $target:$targetPort")
-            val tx = AtomicLong(0L)
-            val rx = AtomicLong(0L)
-            val jobIn = scope.launch {
-                try { tx.set(pump(input, up.getOutputStream())) } finally { runCatching { up.shutdownOutput() } }
-            }
-            val jobOut = scope.launch {
-                try { rx.set(pump(up.getInputStream(), output)) } finally { runCatching { client.shutdownOutput() } }
-            }
-            jobIn.join(); jobOut.join()
-            reportTunnel(target, targetPort, System.currentTimeMillis() - t0, tx.get(), rx.get())
-        } catch (e: Exception) {
-            onLog("TCP fail $target:$targetPort: ${e.message}")
-            runCatching { replyError(output, 0x05) }
-        } finally {
-            runCatching { client.close() }
-            runCatching { upstream?.close() }
-            val left = tunnelCount.decrementAndGet()
-            AppState.tcpTunnels.value = if (left < 0) 0 else left
         }
     }
 
@@ -392,34 +394,43 @@ class Socks5Server(
 
             val clientKey = "${pkt.address.hostAddress}:${pkt.port}"
             val net = pickNet()
-            val session = udpSessions[clientKey]
-            if (session == null) {
+            // computeIfAbsent creates at most one session per client key, so two
+            // packets from a brand-new client can never both insert and orphan a
+            // socket. The reply loop is only launched for the session we actually
+            // inserted ([isNew]).
+            var isNew = false
+            val sessionNow = udpSessions.computeIfAbsent(clientKey) {
+                isNew = true
                 enforceUdpSessionCap()
                 val fwd = DatagramSocket()
                 net?.bindSocket(fwd)
                 fwd.soTimeout = 1000
-                val newSession = UdpSession(fwd)
-                udpSessions[clientKey] = newSession
-                // Fire-and-forget: this loop lives for the session's lifetime (up
-                // to 300s idle timeout). Awaiting it here (as before) blocked this
-                // packet handler - and therefore the very first send() below -
-                // until the session died, so the first datagram of every new UDP
-                // session was silently dropped.
+                UdpSession(fwd)
+            }
+            if (isNew) {
                 scope.launch {
-                    concurrencySem.acquire()
+                    udpSem.acquire()
                     try {
-                        runUdpReplyLoop(newSession, sock, pkt.address, pkt.port)
+                        runUdpReplyLoop(sessionNow, sock, pkt.address, pkt.port)
                     } finally {
-                        concurrencySem.release()
+                        udpSem.release()
                     }
                 }
             }
-            val sessionNow = udpSessions[clientKey] ?: return
             sessionNow.lastActivity = System.currentTimeMillis()
-            val dstAddr = resolve(dstHost, net).first()
-            sessionNow.socket.send(DatagramPacket(payload, payload.size, dstAddr, dstPort))
-            sessionNow.tx += payload.size
-        } catch (_: Exception) {
+            try {
+                val dstAddr = resolve(dstHost, net).first()
+                try {
+                    sessionNow.socket.send(DatagramPacket(payload, payload.size, dstAddr, dstPort))
+                    sessionNow.tx += payload.size
+                } catch (e: Exception) {
+                    onLog("UDP send fail $dstHost:$dstPort via $net: ${e.message}")
+                }
+            } catch (e: Exception) {
+                onLog("UDP packet handling error: ${e.message}")
+            }
+        } catch (e: Exception) {
+            onLog("UDP packet handling error: ${e.message}")
         }
     }
 
