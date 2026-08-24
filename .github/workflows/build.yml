@@ -23,15 +23,14 @@ jobs:
         id: check
         run: |
           msg=$(git log -1 --format=%s)
-          if echo "$msg" | grep -Eq "\[Trigger\]|\[DEBUG\]"; then
+          if echo "$msg" | grep -q "\[Trigger\]"; then
             echo "run-build=true" >> "$GITHUB_OUTPUT"
-            if echo "$msg" | grep -q "\[Trigger\]"; then
-              echo "publish=true" >> "$GITHUB_OUTPUT"
-              echo "Commit contains [Trigger] -> building + publishing release"
-            else
-              echo "publish=false" >> "$GITHUB_OUTPUT"
-              echo "Commit contains [DEBUG] -> building only, NO release published"
-            fi
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Commit contains [Trigger] -> building + publishing release"
+          elif echo "$msg" | grep -q "\[DEBUG\]"; then
+            echo "run-build=false" >> "$GITHUB_OUTPUT"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Commit contains [DEBUG] -> skipping APK build (Debug Compile Check covers it)"
           else
             echo "run-build=false" >> "$GITHUB_OUTPUT"
             echo "publish=false" >> "$GITHUB_OUTPUT"
