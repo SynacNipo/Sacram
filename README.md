@@ -40,7 +40,7 @@
 | Desktop client   | Working       | Use a SOCKS5 client like **Proxifier** pointed at the phone (port `1080`) |
 | HTTP (TCP) proxy | Working       | Plain HTTP + CONNECT tunnels, full-duplex                          |
 | SOCKS5 (TCP)     | Working       | Runs in Auto mode alongside HTTP; validated in hybrid use          |
-| SOCKS5 UDP       | Working       | UDP ASSOCIATE works (RFC 1928); validated end-to-end. Advanced use only — for users who know what they're doing |
+| SOCKS5 UDP       | Working*      | UDP ASSOCIATE works (RFC 1928) but is **best-effort** — see limitations below |
 
 ---
 
@@ -65,6 +65,34 @@ Android app (Kotlin) that turns any spare Android phone into a **WiFi Direct hot
 
 Full setup guide, config reference, control panel, keep-alive and telemetry
 details live in the **[wiki](https://github.com/SynacNipo/Sacram/wiki)**.
+
+## SOCKS5 UDP — limitations
+
+UDP ASSOCIATE (RFC 1928) is implemented and validated end-to-end, but UDP
+relay is inherently more fragile than TCP. Some programs will still "suck"
+over it, and that is expected — not a bug:
+
+- **The client must actually use UDP ASSOCIATE.** UDP only flows if the SOCKS5
+  client supports it. Clients that funnel UDP over a TCP CONNECT, or expect a
+  TUN/VPN-style interface, will not get UDP through Sacram at all.
+- **Unroutable targets are refused by design.** Addresses that resolve to
+  loopback (`127.0.0.0/8`) or private RFC1918 space (`10.x`, `172.16.x`,
+  `192.168.x`) cannot be reached from the phone's cellular egress, so the proxy
+  refuses them. Most apps tolerate a handful of these; a few (e.g. games with
+  strict UDP voice/RTC health-checks) may surface a connection error.
+- **No UDP fragmentation.** SOCKS5 fragmentation (RFC 1928 §7) is unsupported;
+  fragmented or oversized datagrams are dropped.
+- **No IPv6 UDP targets.** IPv6 destination addresses in the UDP request are
+  dropped.
+- **Carrier UDP restrictions.** Some mobile carriers throttle or block outbound
+  UDP on high/ephemeral ports. When that happens, relayed sends fail — watch the
+  app logcat for `UDP send fail …` lines to confirm.
+- **DNS is resolved on the egress network.** If the upstream network can't
+  resolve a relayed host, the datagram is dropped (logged as
+  `UDP packet handling error`).
+
+If a program's UDP still misbehaves, fall back to the TCP path (HTTP / SOCKS5
+TCP) — Sacram's UDP is best-effort, not a substitute for a full TUN VPN.
 
 ## Building
 
