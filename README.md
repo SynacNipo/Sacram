@@ -72,6 +72,21 @@ Android app (Kotlin) that turns any spare Android phone into a **WiFi Direct hot
 Full setup guide, config reference, control panel, keep-alive and telemetry
 details live in the **[wiki](https://github.com/SynacNipo/Sacram/wiki)**.
 
+## OEM quirks (some sites may not load)
+
+Sacram binds every upstream socket to the phone's cellular data interface.
+On some OEMs — notably **HONOR / Huawei / Xiaomi** — Android reports the
+cellular network as having `NET_CAPABILITY_INTERNET` even though binding
+sockets to it does not actually route. While the phone is the WiFi‑Direct
+Group Owner the OS default route also points at the (internet‑less) P2P link,
+so when that bogus cellular binding fails there is no working fallback and
+**some websites fail to load** through that device while another phone
+works fine.
+
+This is a platform/firmware limitation, not a proxy bug. If a specific phone
+exhibits it, prefer a device whose cellular egress binds and routes normally,
+or check that model's behavior before relying on it.
+
 ## SOCKS5 UDP — limitations
 
 UDP ASSOCIATE (RFC 1928) is implemented and validated end-to-end, but UDP
