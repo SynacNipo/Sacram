@@ -96,6 +96,15 @@ over it, and that is expected — not a bug:
 - **DNS is resolved on the egress network.** If the upstream network can't
   resolve a relayed host, the datagram is dropped (logged as
   `UDP packet handling error`).
+- **WebRTC apps (Discord voice, video calls) generally don't use SOCKS5 UDP at
+  all.** Confirmed with Discord: even with Proxifier set to route both TCP and
+  UDP through the proxy, voice connections fail with "No Route" while zero
+  `UDP :` entries for the app ever appear in Proxifier's connection log — only
+  its ordinary HTTPS/API traffic goes through the proxy. This is a limitation
+  of the client, not Sacram: most WebRTC stacks bind UDP sockets directly to
+  the network interface for ICE/STUN candidate gathering and never consult the
+  configured SOCKS5 proxy for that traffic. Sacram's UDP ASSOCIATE has nothing
+  to relay in this case because the datagrams never arrive.
 
 If a program's UDP still misbehaves, fall back to the TCP path (HTTP / SOCKS5
 TCP) — Sacram's UDP is best-effort, not a substitute for a full TUN VPN.
