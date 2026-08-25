@@ -71,6 +71,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etKeepaliveInterval: EditText
     private lateinit var chkRequireApprovalRestart: CheckBox
     private lateinit var chkDisableBandSelector: CheckBox
+    private lateinit var chkTelemetryEnabled: CheckBox
     private lateinit var tvPanelUrl: TextView
     private lateinit var tilPort: com.google.android.material.textfield.TextInputLayout
     private lateinit var tilHttpPort: com.google.android.material.textfield.TextInputLayout
@@ -130,6 +131,12 @@ class MainActivity : AppCompatActivity() {
         chkDisableBandSelector.isChecked = config.disableBandSelector
         chkDisableBandSelector.setOnCheckedChangeListener { _, _ ->
             applyBandSelectorVisibility(chkDisableBandSelector.isChecked)
+            autosave()
+        }
+        chkTelemetryEnabled = findViewById(R.id.chkTelemetryEnabled)
+        chkTelemetryEnabled.isChecked = config.telemetryEnabled
+        chkTelemetryEnabled.setOnCheckedChangeListener { _, _ ->
+            telemetryTouched = true
             autosave()
         }
         tilPort = findViewById(R.id.tilPort)
@@ -346,6 +353,7 @@ class MainActivity : AppCompatActivity() {
         (tilHttpPort.layoutParams as LinearLayout.LayoutParams).weight = if (showHttp && !showSocks) 2f else 1f
     }
 
+    private var telemetryTouched = false
     private var eggTaps = 0
     private var approvalDialog: androidx.appcompat.app.AlertDialog? = null
 
@@ -464,7 +472,9 @@ class MainActivity : AppCompatActivity() {
                 keepaliveUrl = keepaliveUrl,
                 keepaliveIntervalMs = (intervalSec ?: (prev.keepaliveIntervalMs / 1000)) * 1000L,
                 requireApprovalRestart = chkRequireApprovalRestart.isChecked,
-                disableBandSelector = chkDisableBandSelector.isChecked
+                disableBandSelector = chkDisableBandSelector.isChecked,
+                telemetryEnabled = chkTelemetryEnabled.isChecked,
+                telemetryPrompted = prev.telemetryPrompted || telemetryTouched
             )
         )
         tvSaved.setTextColor(0xFF2E7D32.toInt())

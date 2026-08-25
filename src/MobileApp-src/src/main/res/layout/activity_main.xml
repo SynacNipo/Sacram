@@ -29,7 +29,7 @@
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Keep-Alive" />
+                android:text="Misc" />
         </com.google.android.material.tabs.TabLayout>
 
         <!-- ============ TAB 1: PROXY ============ -->
@@ -372,6 +372,21 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="Hides the band dropdown and forces 2.4 GHz. Use if your phone ignores the band you pick."
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <CheckBox
+                android:id="@+id/chkTelemetryEnabled"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="Share anonymous telemetry" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Device model, Android version, connection health (ports, bytes, latency, status codes) and heartbeats. Never SSID, password, IPs, full URLs or search queries."
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
 
