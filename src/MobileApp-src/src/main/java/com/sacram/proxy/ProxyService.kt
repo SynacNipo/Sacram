@@ -124,11 +124,14 @@ class ProxyService : Service() {
             if (!started.get()) return
 
             AppState.running.value = true
-            updateStatus("Enabling WiFi...")
+            updateStatus("Checking WiFi...")
             val wifiOk = WifiDirectManager(this@ProxyService).ensureWifiOn()
             Log.i(TAG, "ensureWifiOn result=$wifiOk")
             if (!wifiOk) {
-                updateStatus("Note: could not auto-enable WiFi (some Android versions block it) - trying anyway")
+                Telemetry.send(this, "proxy_error", mapOf("reason" to "wifi_off") + Telemetry.batteryInfo(this))
+                updateStatus("ERROR [01]: WiFi is off - turn on WiFi to start the hotspot")
+                stopSelf()
+                return
             }
             Telemetry.send(this, "proxy_starting", mapOf("wifi_auto_ok" to "$wifiOk", "port" to "${config.port}"))
             val p2p = WifiDirectManager(this)
