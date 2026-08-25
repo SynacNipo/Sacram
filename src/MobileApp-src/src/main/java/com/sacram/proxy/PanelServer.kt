@@ -7,8 +7,10 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetSocketAddress
@@ -41,10 +43,13 @@ class PanelServer(
     private val onLog: (String) -> Unit = {},
     private val onRestartRequest: () -> Unit = {}
 ) {
-    // Small dedicated pool. The panel is low-traffic (a few requests + a 5s
-    // polling loop from one browser); it must never compete with the proxy's
-    // worker pool, which is exactly why it gets its own executor here.
-    private val workerExecutor = Executors.newFixedThreadPool(16)
+    // Small dedicated pool. The panel is low-traffic (a few requests + an SSE
+    // stream held open by one browser tab); it must never compete with the
+    // proxy's worker pool, which is exactly why it gets its own executor here.
+    // 32 (not 16): an open /api/stream connection parks one thread for as long
+    // as the panel tab stays open, so the pool needs headroom for other panel
+    // requests (settings saves, restarts) to still get served concurrently.
+    private val workerExecutor = Executors.newFixedThreadPool(32)
     private val scope = CoroutineScope(SupervisorJob() + workerExecutor.asCoroutineDispatcher())
     private val running = AtomicBoolean(true)
     private var serverSocket: ServerSocket? = null
@@ -95,7 +100,7 @@ class PanelServer(
         }
     }
 
-    private fun handleClient(client: Socket) {
+    private suspend fun handleClient(client: Socket) {
         // Single buffered stream for both headers and body. IMPORTANT: the POST
         // body is read from this same stream, so we must NOT mix a separate
         // BufferedReader (which would swallow bytes ahead of the body read).
@@ -136,6 +141,10 @@ class PanelServer(
                 writeStatusJson(output)
                 return
             }
+            if (target == "/api/stream") {
+                streamStatusSse(client, output)
+                return
+            }
             writePanelPage(output, buildPanelHtml())
         } catch (_: Exception) {
         } finally {
@@ -143,6 +152,32 @@ class PanelServer(
             runCatching { client.close() }
         }
     }
+
+    /**
+     * Server-Sent Events endpoint: pushes a new `data:` line the instant
+     * [AppState.status] changes, instead of the browser polling /api/status on
+     * a fixed interval. Holds the connection open until the client disconnects
+     * (write fails) or the panel is stopped. Runs on this handler's own worker
+     * coroutine, so one open SSE tab never blocks other panel requests.
+     */
+    private suspend fun streamStatusSse(client: Socket, output: BufferedOutputStream) {
+        val header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\n" +
+            "Cache-Control: no-cache\r\nConnection: keep-alive\r\nX-Accel-Buffering: no\r\n\r\n"
+        output.write(header.toByteArray(Charsets.UTF_8))
+        output.flush()
+        try {
+            AppState.status.collect { value ->
+                if (!running.get() || client.isClosed) throw IOException("stream closed")
+                val line = "data: ${escapeSse(value)}\n\n"
+                output.write(line.toByteArray(Charsets.UTF_8))
+                output.flush()
+            }
+        } catch (_: Exception) {
+            // Client disconnected or panel stopping - normal end of stream.
+        }
+    }
+
+    private fun escapeSse(s: String): String = s.replace("\n", " ").replace("\r", "")
 
     private fun writeStatusJson(output: BufferedOutputStream) {
         val cfg = ConfigManager.load(context)
@@ -336,13 +371,18 @@ class PanelServer(
         <section class="card">
             <div class="card-head">Status</div>
             <div class="grid">
-                <div class="stat"><div class="stat-k">Status</div><div class="stat-v" id="v-status">${escapeHtml(AppState.status.value)}</div></div>
                 <div class="stat"><div class="stat-k">Running</div><div class="stat-v" id="v-running">${AppState.running.value}</div></div>
                 <div class="stat"><div class="stat-k">Uptime</div><div class="stat-v mono" id="v-uptime">$uptimeStr</div></div>
                 <div class="stat"><div class="stat-k">Mode</div><div class="stat-v"><span class="pill" id="v-mode">$mode</span></div></div>
                 <div class="stat"><div class="stat-k">Clients</div><div class="stat-v" id="v-clients">${info.clients}</div></div>
                 <div class="stat"><div class="stat-k">TCP tunnels</div><div class="stat-v" id="v-tunnels">${AppState.tcpTunnels.value}</div></div>
+                <div class="stat"><div class="stat-k">Live feed</div><div class="stat-v"><span class="pill pill-live" id="v-live">connecting&hellip;</span></div></div>
             </div>
+        </section>
+
+        <section class="card">
+            <div class="card-head">Activity <span class="card-head-note">live</span></div>
+            <div class="log" id="v-log"><div class="log-line" id="v-log-current">${escapeHtml(AppState.status.value)}</div></div>
         </section>
 
         <section class="card">
@@ -394,6 +434,7 @@ class PanelServer(
         </div>
         <script>
         var sacramOffset=0, sacramStarted=0;
+        var SACRAM_LOG_MAX=200;
         function sacramFmtUptime(sec){
           if(!isFinite(sec)||sec<0)sec=0;
           var h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=Math.floor(sec%60);
@@ -409,13 +450,52 @@ class PanelServer(
           var d=document.getElementById('v-dot');
           if(d) d.className='dot'+(running===true||running==='true'?' on':' off');
         }
+        function sacramLive(state){
+          var e=document.getElementById('v-live');
+          if(!e) return;
+          if(state==='on'){e.textContent='live';e.className='pill pill-live pill-live-on';}
+          else if(state==='off'){e.textContent='disconnected';e.className='pill pill-live pill-live-off';}
+          else{e.textContent='connecting\u2026';e.className='pill pill-live';}
+        }
+        function sacramNowLabel(){
+          var d=new Date();
+          var p=function(n){return n<10?'0'+n:''+n;};
+          return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
+        }
+        function sacramLogLine(text){
+          var log=document.getElementById('v-log');
+          if(!log) return;
+          var cur=document.getElementById('v-log-current');
+          if(cur){cur.removeAttribute('id');cur.className='log-line log-line-dim';}
+          var line=document.createElement('div');
+          line.id='v-log-current';
+          line.className='log-line';
+          line.textContent='['+sacramNowLabel()+'] '+text;
+          log.appendChild(line);
+          while(log.children.length>SACRAM_LOG_MAX) log.removeChild(log.firstChild);
+          log.scrollTop=log.scrollHeight;
+        }
+        function sacramStartStream(){
+          if(!window.EventSource){sacramLive('off');return;}
+          var es=new EventSource('/api/stream');
+          es.onopen=function(){sacramLive('on');};
+          es.onmessage=function(ev){sacramLogLine(ev.data);};
+          es.onerror=function(){
+            sacramLive('off');
+            // Browsers auto-retry EventSource, but our server closes the TCP
+            // socket per-request rather than staying keep-alive-friendly across
+            // reconnect storms, so force a clean reconnect after a short delay.
+            es.close();
+            setTimeout(sacramStartStream,2000);
+          };
+        }
         async function sacramRefresh(){
           try{
             var r=await fetch('/api/status',{cache:'no-store'});
             var d=await r.json();
             var set=function(id,v){var e=document.getElementById(id);if(e)e.textContent=v;};
             if(d.startedAt>0){sacramStarted=d.startedAt;sacramOffset=d.serverNow-Date.now();}
-            set('v-status',d.status);set('v-running',d.running);set('v-uptime',d.uptime);
+            set('v-running',d.running);set('v-uptime',d.uptime);
             set('v-mode',d.mode);set('v-ssid',d.ssid);set('v-pass',d.passphrase);
             set('v-goip',d.goIp);set('v-clients',d.clients);set('v-tunnels',d.tcpTunnels);
             set('v-panelport',d.panelPort);
@@ -424,6 +504,7 @@ class PanelServer(
           }catch(e){}
         }
         sacramRefresh();
+        sacramStartStream();
         setInterval(sacramRefresh,5000);
         setInterval(sacramTick,1000);
         </script>
@@ -463,18 +544,39 @@ class PanelServer(
         .dot.on{background:var(--accent);box-shadow:0 0 0 3px rgba(61,220,132,0.15)}
         .dot.off{background:#f0654f;box-shadow:0 0 0 3px rgba(240,101,79,0.15)}
 
-        .card{background:var(--bg-raised);border:1px solid var(--line);border-radius:12px;
-          padding:16px;margin-bottom:14px}
+        .card{background:linear-gradient(180deg,var(--bg-raised),rgba(18,21,27,0.6));
+          border:1px solid var(--line);border-radius:12px;
+          padding:16px;margin-bottom:14px;box-shadow:0 1px 0 rgba(255,255,255,0.02) inset}
         .card-head{font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;
-          color:var(--text-faint);margin-bottom:12px}
+          color:var(--text-faint);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+        .card-head-note{font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:none;
+          color:var(--accent);background:rgba(61,220,132,0.1);border:1px solid rgba(61,220,132,0.2);
+          border-radius:999px;padding:1px 7px}
 
-        .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+        .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
         .stat-k{font-size:11px;color:var(--text-faint);margin-bottom:3px}
         .stat-v{font-size:15px;font-weight:600}
 
         .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;
           border-radius:999px;background:rgba(61,220,132,0.12);color:var(--accent);
           border:1px solid rgba(61,220,132,0.25)}
+        .pill-live{background:rgba(136,145,160,0.12);color:var(--text-dim);
+          border:1px solid rgba(136,145,160,0.25)}
+        .pill-live-on{background:rgba(61,220,132,0.12);color:var(--accent);
+          border:1px solid rgba(61,220,132,0.25)}
+        .pill-live-on::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;
+          background:var(--accent);margin-right:6px;position:relative;top:-1px;
+          box-shadow:0 0 0 3px rgba(61,220,132,0.15)}
+        .pill-live-off{background:rgba(240,101,79,0.1);color:#f0654f;
+          border:1px solid rgba(240,101,79,0.22)}
+
+        .log{background:#05070a;border:1px solid var(--line);border-radius:8px;
+          padding:10px 12px;max-height:220px;overflow-y:auto;font-family:var(--mono);
+          font-size:12px;line-height:1.65}
+        .log-line{color:var(--text);white-space:pre-wrap;word-break:break-all}
+        .log-line-dim{color:var(--text-dim)}
+        .log::-webkit-scrollbar{width:8px}
+        .log::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
 
         .list{display:flex;flex-direction:column}
         .li{display:flex;justify-content:space-between;align-items:center;gap:10px;
