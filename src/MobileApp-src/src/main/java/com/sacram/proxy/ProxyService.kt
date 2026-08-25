@@ -95,6 +95,7 @@ class ProxyService : Service() {
         acquireLocks()
         startFileWatcher()
         PanelApproval.onRestart = { restartProxy() }
+        UpdateChecker.scheduleHourlyCheck(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

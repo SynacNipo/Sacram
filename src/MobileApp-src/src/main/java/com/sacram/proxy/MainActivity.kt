@@ -43,9 +43,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.core.content.FileProvider
 import java.io.File
-import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
 class MainActivity : AppCompatActivity() {
 
@@ -172,13 +169,32 @@ class MainActivity : AppCompatActivity() {
         btnCheckUpdate = findViewById(R.id.btnCheckUpdate)
         tvUpdateStatus = findViewById(R.id.tvUpdateStatus)
         tvUpdateStatus.text = "You're running ${BuildConfig.VERSION_NAME} - tap to check for updates."
-        btnCheckUpdate.setOnClickListener { checkForUpdate() }
+        btnCheckUpdate.setOnClickListener {
+            val ready = AppState.updateAvailable.value
+            val file = UpdateChecker.downloadedApkFile(this)
+            if (ready != null && file.exists()) {
+                launchInstaller(file)
+            } else {
+                checkForUpdate()
+            }
+        }
+        UpdateChecker.scheduleHourlyCheck(this)
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch { AppState.status.collect { tvStatus.text = it } }
                 launch { AppState.apInfo.collect { renderInfo(it) } }
                 launch { AppState.running.collect { renderRunning(it) } }
+                launch {
+                    AppState.updateAvailable.collect { tag ->
+                        if (tag != null && UpdateChecker.downloadedApkFile(this@MainActivity).exists()) {
+                            btnCheckUpdate.text = "Install update ($tag)"
+                            tvUpdateStatus.text = "Update $tag downloaded in the background - tap to install."
+                        } else {
+                            btnCheckUpdate.text = "Check for updates"
+                        }
+                    }
+                }
                 launch {
                     // Heartbeat: every 30 min while the app is visible.
                     // Cancelled automatically when the app leaves the foreground.
@@ -596,20 +612,26 @@ class MainActivity : AppCompatActivity() {
         tvUpdateStatus.text = "Checking for updates..."
         lifecycleScope.launch {
             try {
-                val latest = withContext(Dispatchers.IO) { fetchLatestTag() }
+                val latest = withContext(Dispatchers.IO) { UpdateChecker.fetchLatestTag() }
                 when {
                     latest == null -> {
                         tvUpdateStatus.text = "Couldn't reach the update server. Try again later."
                     }
-                    !isNewer(latest, BuildConfig.VERSION_NAME) -> {
+                    !UpdateChecker.isNewer(latest, BuildConfig.VERSION_NAME) -> {
                         tvUpdateStatus.text = "You're on the latest version (${BuildConfig.VERSION_NAME})."
+                        AppState.updateAvailable.value = null
                     }
                     else -> {
                         tvUpdateStatus.text = "Update available: $latest - downloading..."
-                        val file = withContext(Dispatchers.IO) { downloadApk(latest) }
+                        val file = withContext(Dispatchers.IO) {
+                            UpdateChecker.downloadApk(this@MainActivity, latest) { pct ->
+                                runOnUiThread { tvUpdateStatus.text = "Downloading $latest... $pct%" }
+                            }
+                        }
                         if (file == null) {
                             tvUpdateStatus.text = "Download failed. Check your connection and try again."
                         } else {
+                            AppState.updateAvailable.value = latest
                             tvUpdateStatus.text = "Downloaded $latest - opening installer..."
                             launchInstaller(file)
                         }
@@ -621,61 +643,6 @@ class MainActivity : AppCompatActivity() {
                 updateInProgress = false
                 btnCheckUpdate.isEnabled = true
             }
-        }
-    }
-
-    private fun fetchLatestTag(): String? {
-        val conn = URL("https://api.github.com/repos/SynacNipo/Sacram/releases/latest")
-            .openConnection() as HttpURLConnection
-        conn.requestMethod = "GET"
-        conn.setRequestProperty("User-Agent", "Sacram-App")
-        conn.connectTimeout = 10000
-        conn.readTimeout = 10000
-        return try {
-            if (conn.responseCode != 200) return null
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
-            val m = Regex(""""tag_name"\s*:\s*"([^"]+)"""").find(body) ?: return null
-            m.groupValues[1]
-        } finally {
-            conn.disconnect()
-        }
-    }
-
-    private fun downloadApk(tag: String): File? {
-        val dir = File(getExternalFilesDir(null), "updates")
-        if (!dir.exists()) dir.mkdirs()
-        val file = File(dir, "sacram.apk")
-        val conn = URL("https://github.com/SynacNipo/Sacram/releases/download/$tag/sacram.apk")
-            .openConnection() as HttpURLConnection
-        conn.requestMethod = "GET"
-        conn.setRequestProperty("User-Agent", "Sacram-App")
-        conn.connectTimeout = 15000
-        conn.readTimeout = 60000
-        return try {
-            if (conn.responseCode !in 200..299) return null
-            val total = conn.contentLengthLong
-            conn.inputStream.use { input ->
-                FileOutputStream(file).use { out ->
-                    val buffer = ByteArray(8192)
-                    var read: Int
-                    var downloaded = 0L
-                    while (input.read(buffer).also { read = it } != -1) {
-                        out.write(buffer, 0, read)
-                        downloaded += read
-                        if (total > 0) {
-                            val pct = (downloaded * 100 / total).toInt()
-                            runOnUiThread {
-                                tvUpdateStatus.text = "Downloading $tag... $pct%"
-                            }
-                        }
-                    }
-                }
-            }
-            file
-        } catch (_: Exception) {
-            null
-        } finally {
-            conn.disconnect()
         }
     }
 
@@ -691,19 +658,6 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             tvUpdateStatus.text = "Couldn't open installer: ${e.message}"
         }
-    }
-
-    private fun parseVersion(tag: String): Pair<Int, Int>? {
-        val m = Regex("""v?(\d+)\.(\d+)""").find(tag) ?: return null
-        val a = m.groupValues[1].toIntOrNull() ?: return null
-        val b = m.groupValues[2].toIntOrNull() ?: return null
-        return a to b
-    }
-
-    private fun isNewer(latest: String, current: String): Boolean {
-        val a = parseVersion(latest) ?: return false
-        val b = parseVersion(current) ?: return false
-        return a.first > b.first || (a.first == b.first && a.second > b.second)
     }
 
     private fun requestBatteryExemption() {
