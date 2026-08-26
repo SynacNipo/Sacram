@@ -3,7 +3,24 @@
     <color name="on_primary">#FFFFFF</color>
     <color name="bg">#121212</color>
     <color name="text_primary">#FFFFFF</color>
-    <color name="text_secondary">#CCCCCC</color>
-    <color name="status_bg">#2C2C2C</color>
-    <color name="status_border">#4CAF50</color>
+    <color name="text_secondary">#AEB7C6</color>
+
+    <!-- Gradient palette -->
+    <color name="grad_top">#13203B</color>
+    <color name="grad_mid">#0D1322</color>
+    <color name="grad_bottom">#070A12</color>
+    <color name="accent">#3DDC84</color>
+    <color name="accent_blue">#4F8EF7</color>
+    <color name="accent_pressed">#2AA86A</color>
+    <color name="accent_blue_pressed">#3A78C8</color>
+
+    <color name="surface">#141A27</color>
+    <color name="surface_line">#222C3E</color>
+    <color name="header_start">#1F8A5B</color>
+    <color name="header_end">#2F6FD6</color>
+
+    <color name="status_bg">#123026</color>
+    <color name="status_border">#3DDC84</color>
+    <color name="danger">#F0654F</color>
+    <color name="ok">#2E7D32</color>
 </resources>

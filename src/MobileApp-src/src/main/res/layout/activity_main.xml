@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <com.sacram.proxy.SwipeScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/mainScroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
+    android:background="@android:color/transparent"
     android:fillViewport="true">
 
     <LinearLayout
@@ -11,15 +12,62 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
+        <!-- ===== Brand header (gradient) ===== -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_top_header"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingTop="22dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="26dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_marginEnd="12dp"
+                    android:src="@drawable/ic_launcher_fg" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.1"
+                        android:text="SACRAM"
+                        android:textColor="#FFFFFF"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="control center"
+                        android:textColor="#E6FFFFFF"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/tabLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@color/primary"
-            app:tabIndicatorColor="@color/on_primary"
-            app:tabSelectedTextColor="@color/on_primary"
-            app:tabTextColor="#CCFFFFFF"
-            xmlns:app="http://schemas.android.com/apk/res-auto">
+            android:background="@android:color/transparent"
+            android:paddingTop="6dp"
+            app:tabIndicatorColor="@color/accent"
+            app:tabSelectedTextColor="@color/accent"
+            app:tabTextColor="#8891A0">
 
             <com.google.android.material.tabs.TabItem
                 android:layout_width="wrap_content"
@@ -38,15 +86,16 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="20dp">
+            android:padding="16dp">
 
             <TextView
                 android:id="@+id/tvStatus"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@drawable/bg_status"
-                android:padding="14dp"
+                android:padding="16dp"
                 android:text="Stopped"
+                android:textColor="#EAF2EC"
                 android:textIsSelectable="true"
                 android:textSize="15sp"
                 android:textStyle="bold" />
@@ -55,163 +104,186 @@
                 android:id="@+id/tvInfo"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_card"
+                android:fontFamily="monospace"
+                android:padding="14dp"
                 android:text="--"
+                android:textColor="#CDD6E3"
                 android:textIsSelectable="true"
-                android:textSize="14sp" />
+                android:textSize="13sp" />
 
             <Button
                 android:id="@+id/btnToggle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="START PROXY" />
+                android:background="@drawable/bg_button_primary"
+                android:fontFamily="sans-serif-medium"
+                android:minHeight="52dp"
+                android:padding="14dp"
+                android:text="START PROXY"
+                android:textAllCaps="false"
+                android:textColor="#04140B"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                app:backgroundTint="@null" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:text="Hotspot settings (auto-saved)"
-                android:textSize="16sp"
+                android:layout_marginTop="26dp"
+                android:layout_marginBottom="10dp"
+                android:letterSpacing="0.06"
+                android:text="HOTSPOT SETTINGS"
+                android:textColor="@color/accent"
+                android:textSize="12sp"
                 android:textStyle="bold" />
 
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilSsid"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:hint="SSID">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etSsid"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="text" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilPass"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:hint="WiFi Password (8-63 chars, shown for clients to see)">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etPass"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="text"
-                    android:textIsSelectable="true" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilBand"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:hint="WiFi Band"
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
-
-                <AutoCompleteTextView
-                    android:id="@+id/etBand"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="none"
-                    android:focusable="false"
-                    android:clickable="true" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="4dp"
-                android:text="2.4 GHz reaches farther and works with older devices; 5 GHz is faster but shorter range. Auto lets the phone decide. Some devices ignore this and pick their own band."
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp" />
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilProxyType"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:hint="Proxy Type"
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
-
-                <AutoCompleteTextView
-                    android:id="@+id/etProxyType"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="none"
-                    android:focusable="false"
-                    android:clickable="true" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="4dp"
-                android:text="Auto = use the default mode. UDP/SOCKS5 or HTTP proxy mode."
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp" />
-
             <LinearLayout
-                android:id="@+id/portRow"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="horizontal"
-                android:weightSum="2">
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:padding="14dp">
 
                 <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/tilPort"
-                    android:layout_width="0dp"
+                    android:id="@+id/tilSsid"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="6dp"
-                    android:layout_weight="1"
-                    android:hint="SOCKS5 Port">
+                    android:hint="SSID">
 
                     <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/etPort"
+                        android:id="@+id/etSsid"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:inputType="number" />
+                        android:inputType="text" />
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/tilHttpPort"
-                    android:layout_width="0dp"
+                    android:id="@+id/tilPass"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:layout_weight="1"
-                    android:hint="HTTP Port">
+                    android:layout_marginTop="8dp"
+                    android:hint="WiFi Password (8-63 chars, shown for clients to see)">
 
                     <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/etHttpPort"
+                        android:id="@+id/etPass"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:inputType="number" />
+                        android:inputType="text"
+                        android:textIsSelectable="true" />
                 </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilBand"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:hint="WiFi Band"
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
+
+                    <AutoCompleteTextView
+                        android:id="@+id/etBand"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:clickable="true"
+                        android:focusable="false"
+                        android:inputType="none" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="4dp"
+                    android:text="2.4 GHz reaches farther and works with older devices; 5 GHz is faster but shorter range. Auto lets the phone decide. Some devices ignore this and pick their own band."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilProxyType"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:hint="Proxy Type"
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
+
+                    <AutoCompleteTextView
+                        android:id="@+id/etProxyType"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:clickable="true"
+                        android:focusable="false"
+                        android:inputType="none" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="4dp"
+                    android:text="Auto = use the default mode. UDP/SOCKS5 or HTTP proxy mode."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp" />
+
+                <LinearLayout
+                    android:id="@+id/portRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal"
+                    android:weightSum="2">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilPort"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:layout_weight="1"
+                        android:hint="SOCKS5 Port">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etPort"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilHttpPort"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:hint="HTTP Port">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etHttpPort"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="SOCKS5 port shows for SOCKS5/Hybrid; HTTP port shows for HTTP/Hybrid. Both sit side-by-side for Hybrid."
+                    android:textColor="@color/text_secondary"
+                    android:textIsSelectable="true"
+                    android:textSize="12sp" />
             </LinearLayout>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="SOCKS5 port shows for SOCKS5/Hybrid; HTTP port shows for HTTP/Hybrid. Both sit side-by-side for Hybrid."
-                android:textSize="12sp"
-                android:textColor="@color/text_secondary"
-                android:textIsSelectable="true" />
 
             <TextView
                 android:id="@+id/tvSaved"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
+                android:layout_marginTop="12dp"
+                android:text="Auto-saved to config.txt"
                 android:textColor="@color/text_secondary"
-                android:textSize="12sp"
-                android:text="Auto-saved to config.txt" />
+                android:textSize="12sp" />
 
             <TextView
                 android:id="@+id/tvConfigPath"
@@ -229,60 +301,72 @@
             android:id="@+id/tabKeepalive"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="20dp"
-        android:visibility="gone">
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:visibility="gone">
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="App update"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <Button
-            android:id="@+id/btnCheckUpdate"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="CHECK FOR UPDATES" />
-
-        <TextView
-            android:id="@+id/tvUpdateStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/tilUpdateCheckInterval"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:hint="Background update check">
-
-            <AutoCompleteTextView
-                android:id="@+id/etUpdateCheckInterval"
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="none" />
-        </com.google.android.material.textfield.TextInputLayout>
+                android:letterSpacing="0.06"
+                android:text="APP UPDATE"
+                android:textColor="@color/accent"
+                android:textSize="12sp"
+                android:textStyle="bold" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="How often Sacram checks GitHub for a new release and silently downloads it over your current connection (including cellular). Disable if you're on limited data."
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+            <Button
+                android:id="@+id/btnCheckUpdate"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/bg_button_secondary"
+                android:fontFamily="sans-serif-medium"
+                android:minHeight="50dp"
+                android:text="CHECK FOR UPDATES"
+                android:textAllCaps="false"
+                android:textColor="#E8ECF1"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                app:backgroundTint="@null" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="Keep Sacram alive on aggressive battery savers"
-                android:textSize="16sp"
+            <TextView
+                android:id="@+id/tvUpdateStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilUpdateCheckInterval"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:hint="Background update check">
+
+                <AutoCompleteTextView
+                    android:id="@+id/etUpdateCheckInterval"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="How often Sacram checks GitHub for a new release and silently downloads it over your current connection (including cellular). Disable if you're on limited data."
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="26dp"
+                android:letterSpacing="0.06"
+                android:text="KEEP SACRAM ALIVE"
+                android:textColor="@color/accent"
+                android:textSize="12sp"
                 android:textStyle="bold" />
 
             <Button
@@ -290,28 +374,54 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:text="REQUEST BATTERY EXEMPTION" />
+                android:background="@drawable/bg_button_secondary"
+                android:fontFamily="sans-serif-medium"
+                android:minHeight="50dp"
+                android:text="REQUEST BATTERY EXEMPTION"
+                android:textAllCaps="false"
+                android:textColor="#E8ECF1"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                app:backgroundTint="@null" />
 
             <Button
                 android:id="@+id/btnAutostart"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="AUTOSTART SETTINGS" />
+                android:background="@drawable/bg_button_secondary"
+                android:fontFamily="sans-serif-medium"
+                android:minHeight="50dp"
+                android:text="AUTOSTART SETTINGS"
+                android:textAllCaps="false"
+                android:textColor="#E8ECF1"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                app:backgroundTint="@null" />
 
             <Button
                 android:id="@+id/btnWiki"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="OPEN SETUP GUIDE (WIKI)" />
+                android:background="@drawable/bg_button_secondary"
+                android:fontFamily="sans-serif-medium"
+                android:minHeight="50dp"
+                android:text="OPEN SETUP GUIDE (WIKI)"
+                android:textAllCaps="false"
+                android:textColor="#E8ECF1"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                app:backgroundTint="@null" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="Network keep-alive ping"
-                android:textSize="16sp"
+                android:layout_marginTop="26dp"
+                android:letterSpacing="0.06"
+                android:text="NETWORK KEEP-ALIVE PING"
+                android:textColor="@color/accent"
+                android:textSize="12sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -322,103 +432,131 @@
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
 
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilKeepaliveUrl"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:hint="Keep-Alive URL (pre-listed site)">
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:padding="14dp">
 
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etKeepaliveUrl"
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilKeepaliveUrl"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="textUri" />
-            </com.google.android.material.textfield.TextInputLayout>
+                    android:hint="Keep-Alive URL (pre-listed site)">
 
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilKeepaliveInterval"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:hint="Ping interval (seconds, min 15)">
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etKeepaliveUrl"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textUri" />
+                </com.google.android.material.textfield.TextInputLayout>
 
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etKeepaliveInterval"
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilKeepaliveInterval"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="number" />
-            </com.google.android.material.textfield.TextInputLayout>
+                    android:layout_marginTop="8dp"
+                    android:hint="Ping interval (seconds, min 15)">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etKeepaliveInterval"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="Control panel"
-                android:textSize="16sp"
-                android:textStyle="bold" />
-
-            <CheckBox
-                android:id="@+id/chkRequireApprovalRestart"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Require approval for panel restart" />
-
-            <TextView
-                android:id="@+id/tvPanelUrl"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:textColor="@color/text_secondary"
+                android:layout_marginTop="26dp"
+                android:letterSpacing="0.06"
+                android:text="CONTROL PANEL"
+                android:textColor="@color/accent"
                 android:textSize="12sp"
-                android:textIsSelectable="true" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="Feature toggles"
-                android:textSize="16sp"
                 android:textStyle="bold" />
 
-            <CheckBox
-                android:id="@+id/chkDisableBandSelector"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Disable the WiFi band selector" />
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <CheckBox
+                    android:id="@+id/chkRequireApprovalRestart"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Require approval for panel restart" />
+
+                <TextView
+                    android:id="@+id/tvPanelUrl"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/text_secondary"
+                    android:textIsSelectable="true"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="When on, panel restarts need in-app approval within 10s. Off (default) restarts immediately."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Hides the band dropdown and forces 2.4 GHz. Use if your phone ignores the band you pick."
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
+                android:layout_marginTop="26dp"
+                android:letterSpacing="0.06"
+                android:text="FEATURE TOGGLES"
+                android:textColor="@color/accent"
+                android:textSize="12sp"
+                android:textStyle="bold" />
 
-            <CheckBox
-                android:id="@+id/chkTelemetryEnabled"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="Share anonymous telemetry" />
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_card"
+                android:orientation="vertical"
+                android:padding="14dp">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Device model, Android version, connection health (ports, bytes, latency, status codes) and heartbeats. Never SSID, password, IPs, full URLs or search queries."
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
+                <CheckBox
+                    android:id="@+id/chkDisableBandSelector"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Disable the WiFi band selector" />
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="When on, panel restarts need in-app approval within 10s. Off (default) restarts immediately."
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Hides the band dropdown and forces 2.4 GHz. Use if your phone ignores the band you pick."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+
+                <CheckBox
+                    android:id="@+id/chkTelemetryEnabled"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Share anonymous telemetry" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Device model, Android version, connection health (ports, bytes, latency, status codes) and heartbeats. Never SSID, password, IPs, full URLs or search queries."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
 
             <TextView
                 android:layout_width="match_parent"
