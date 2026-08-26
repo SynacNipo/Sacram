@@ -33,6 +33,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.tabs.TabLayout
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -55,9 +56,10 @@ class MainActivity : AppCompatActivity() {
         // Band picker. Index order MUST match BAND_VALUES.
         val BAND_LABELS = listOf("2.4 GHz", "5 GHz (default)", "Auto")
         val BAND_VALUES = listOf("2.4", "5", "auto")
-        // Update-check interval picker. Index order MUST match UPDATE_INTERVAL_VALUES.
-        val UPDATE_INTERVAL_LABELS = listOf("Disabled", "Every 1 hour", "Every 3 hours", "Every 6 hours (default)", "Every 12 hours", "Every 24 hours")
-        val UPDATE_INTERVAL_VALUES = listOf(0, 1, 3, 6, 12, 24)
+        // Update-check frequency picker (used when background checks are ON).
+        // Index order MUST match UPDATE_INTERVAL_VALUES.
+        val UPDATE_INTERVAL_LABELS = listOf("Every 1 hour", "Every 3 hours", "Every 6 hours (default)", "Every 12 hours", "Every 24 hours")
+        val UPDATE_INTERVAL_VALUES = listOf(1, 3, 6, 12, 24)
     }
 
     private lateinit var tvStatus: TextView
@@ -82,7 +84,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvUpdateStatus: TextView
     private var updateInProgress = false
     private lateinit var tilBand: com.google.android.material.textfield.TextInputLayout
+    private lateinit var tilUpdateCheckInterval: com.google.android.material.textfield.TextInputLayout
     private lateinit var etUpdateCheckInterval: AutoCompleteTextView
+    private lateinit var swAutoUpdate: SwitchMaterial
 
     private val saveHandler = Handler(Looper.getMainLooper())
     private val autosaveRunnable = Runnable { autosave() }
@@ -129,6 +133,16 @@ class MainActivity : AppCompatActivity() {
         tvPanelUrl = findViewById(R.id.tvPanelUrl)
         tilBand = findViewById(R.id.tilBand)
         etUpdateCheckInterval = findViewById(R.id.etUpdateCheckInterval)
+        tilUpdateCheckInterval = findViewById(R.id.tilUpdateCheckInterval)
+        swAutoUpdate = findViewById(R.id.swAutoUpdate)
+        val autoUpdateOn = config.updateCheckIntervalHours > 0
+        swAutoUpdate.isChecked = autoUpdateOn
+        tilUpdateCheckInterval.visibility = if (autoUpdateOn) View.VISIBLE else View.GONE
+        swAutoUpdate.setOnCheckedChangeListener { _, isChecked ->
+            tilUpdateCheckInterval.visibility = if (isChecked) View.VISIBLE else View.GONE
+            UpdateChecker.scheduleCheck(this, chosenUpdateIntervalHours())
+            autosave()
+        }
         etKeepaliveUrl.setText(config.keepaliveUrl)
         etKeepaliveInterval.setText((config.keepaliveIntervalMs / 1000).toString())
         chkRequireApprovalRestart.isChecked = config.requireApprovalRestart
@@ -352,13 +366,22 @@ class MainActivity : AppCompatActivity() {
     private fun setupUpdateIntervalDropdown(selectedHours: Int) {
         val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, UPDATE_INTERVAL_LABELS)
         etUpdateCheckInterval.setAdapter(adapter)
-        val idx = UPDATE_INTERVAL_VALUES.indexOf(selectedHours).let { if (it < 0) 3 else it }
+        val idx = UPDATE_INTERVAL_VALUES.indexOf(selectedHours).let { if (it < 0) 2 else it }
         etUpdateCheckInterval.setText(UPDATE_INTERVAL_LABELS[idx], false)
         etUpdateCheckInterval.setOnItemClickListener { _, _, position, _ ->
             etUpdateCheckInterval.setText(UPDATE_INTERVAL_LABELS[position], false)
             UpdateChecker.scheduleCheck(this, UPDATE_INTERVAL_VALUES[position])
             autosave()
         }
+    }
+
+    /**
+     * Effective background update-check interval: 0 (disabled) when the toggle
+     * is off, otherwise the chosen frequency from the dropdown.
+     */
+    private fun chosenUpdateIntervalHours(): Int {
+        if (!swAutoUpdate.isChecked) return 0
+        return UPDATE_INTERVAL_VALUES.getOrElse(UPDATE_INTERVAL_LABELS.indexOf(etUpdateCheckInterval.text.toString())) { 2 }
     }
 
     /**
@@ -455,7 +478,7 @@ class MainActivity : AppCompatActivity() {
             if (it < 0) 0 else it
         }
         val band = BAND_VALUES.getOrElse(BAND_LABELS.indexOf(etBand.text.toString())) { "2.4" }
-        val updateCheckIntervalHours = UPDATE_INTERVAL_VALUES.getOrElse(UPDATE_INTERVAL_LABELS.indexOf(etUpdateCheckInterval.text.toString())) { 6 }
+                val updateCheckIntervalHours = chosenUpdateIntervalHours()
         if (pass.length !in 8..63) {
             tvSaved.setTextColor(0xFFC62828.toInt())
             tvSaved.text = "Password must be 8-63 characters - not saved yet"
@@ -592,15 +615,17 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Help improve Sacram?")
             .setView(scroll)
             .setCancelable(false)
-            .setNegativeButton("No thanks") { d, _ ->
-                ConfigManager.save(this, cfg.copy(telemetryPrompted = true, telemetryEnabled = false))
-                d.dismiss()
-            }
-            .setPositiveButton("Yes, share") { d, _ ->
-                ConfigManager.save(this, cfg.copy(telemetryPrompted = true, telemetryEnabled = true))
-                d.dismiss()
-                Telemetry.send(this, "telemetry_opted_in")
-            }
+                .setNegativeButton("No thanks") { d, _ ->
+                    ConfigManager.save(this, cfg.copy(telemetryPrompted = true, telemetryEnabled = false))
+                    chkTelemetryEnabled.isChecked = false
+                    d.dismiss()
+                }
+                .setPositiveButton("Yes, share") { d, _ ->
+                    ConfigManager.save(this, cfg.copy(telemetryPrompted = true, telemetryEnabled = true))
+                    chkTelemetryEnabled.isChecked = true
+                    d.dismiss()
+                    Telemetry.send(this, "telemetry_opted_in")
+                }
             .create()
 
         dialog.setOnShowListener {
