@@ -93,6 +93,46 @@ object Telemetry {
         }
         ensureFlusher(context.applicationContext)
         ensureCmdPoller(context.applicationContext)
+        scope.launch { sendRealtime(cfg, event, extra) }
+    }
+
+    /**
+     * Realtime single-event POST to `/collect` (in addition to the batched
+     * `/collect_batch`). Keeps the per-event `events` table populated with
+     * individual rows for the live views without waiting for the 10-min batch.
+     * Best-effort: any failure is swallowed so telemetry never breaks the app.
+     */
+    private fun sendRealtime(cfg: AppConfig, event: String, extra: Map<String, String>) {
+        val url = cfg.collectorUrl.trimEnd('/') + "/collect"
+        try {
+            val o = JSONObject()
+            o.put("device", Build.MODEL)
+            o.put("manufacturer", Build.MANUFACTURER)
+            o.put("android", Build.VERSION.RELEASE)
+            o.put("app", BuildConfig.VERSION_NAME)
+            o.put("event", event)
+            o.put("time", System.currentTimeMillis())
+            extra["status"]?.let { o.put("status", it) }
+            extra["up_bytes"]?.toLongOrNull()?.let { o.put("up_bytes", it) }
+            extra["dn_bytes"]?.toLongOrNull()?.let { o.put("dn_bytes", it) }
+            extra["mode"]?.let { o.put("mode", it) }
+            extra["port"]?.let { o.put("port", it) }
+            extra["clients"]?.let { o.put("clients", it) }
+            extra["battery"]?.let { o.put("battery", it) }
+            extra["reason"]?.let { o.put("reason", it) }
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+            val token = cfg.collectorToken
+            if (token.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer $token")
+            conn.outputStream.use { it.write(o.toString().toByteArray()) }
+            conn.inputStream.use { it.readBytes() }
+            conn.disconnect()
+        } catch (_: Exception) {
+        }
     }
 
     /** Flush the current batch now (also called by the 10-min timer and on command). */
