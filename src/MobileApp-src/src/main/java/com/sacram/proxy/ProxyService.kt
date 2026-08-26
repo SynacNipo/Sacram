@@ -253,10 +253,10 @@ class ProxyService : Service() {
                     updateNotification(actualSsid, actualPass, goIp, config.port, 0, false, config.panelPort)
                     Telemetry.send(this, "proxy_started", mapOf("mode" to "socks5", "port" to "${config.port}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
                 }
-                // Ship the opening batch immediately so the collector has a
-                // device row without waiting for the 10-min timer.
-                Telemetry.flush(this)
             }
+            // Ship the opening batch immediately so the collector has a
+            // device row without waiting for the 10-min timer.
+            Telemetry.flush(this)
 
             // Control panel runs on its own port + own thread pool, independent of
             // the proxy traffic, so it stays responsive even when the proxy is
