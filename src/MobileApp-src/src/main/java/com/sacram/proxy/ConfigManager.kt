@@ -31,7 +31,9 @@ data class AppConfig(
     // Dedicated control-panel port. Runs its own server (PanelServer) so the
     // panel stays responsive even when the proxy worker pool is saturated.
     // Defaults to httpPort + 1 when not explicitly set.
-    val panelPort: Int = 8283
+    val panelPort: Int = 8283,
+    // Hours between background update checks; 0 = disabled. Default 6h.
+    val updateCheckIntervalHours: Int = 6
 ) {
     fun effectiveMode(): String {
         return when (proxyType) {
@@ -179,7 +181,9 @@ object ConfigManager {
                 panelEnabled = p.getProperty("panel_enabled", defaultConfig.panelEnabled.toString()).toBoolean(),
                 requireApprovalRestart = p.getProperty("require_approval_restart", defaultConfig.requireApprovalRestart.toString()).toBoolean(),
                 panelPort = p.getProperty("panel_port", (defaultConfig.httpPort + 1).toString()).toIntOrNull()?.coerceIn(1, 65535)
-                    ?: (defaultConfig.httpPort + 1)
+                    ?: (defaultConfig.httpPort + 1),
+                updateCheckIntervalHours = p.getProperty("update_check_interval_hours", defaultConfig.updateCheckIntervalHours.toString()).toIntOrNull()?.coerceIn(0, 24)
+                    ?: defaultConfig.updateCheckIntervalHours
             )
         } catch (_: Exception) {
             defaultConfig
@@ -207,7 +211,8 @@ object ConfigManager {
             "keepalive_interval_ms=${config.keepaliveIntervalMs}",
             "panel_enabled=${config.panelEnabled}",
             "require_approval_restart=${config.requireApprovalRestart}",
-            "panel_port=${config.panelPort}"
+            "panel_port=${config.panelPort}",
+            "update_check_interval_hours=${config.updateCheckIntervalHours}"
         )
         val text = lines.joinToString("\n") + "\n"
         file.writeText(text)

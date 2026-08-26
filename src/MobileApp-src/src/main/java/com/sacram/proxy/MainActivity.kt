@@ -55,6 +55,9 @@ class MainActivity : AppCompatActivity() {
         // Band picker. Index order MUST match BAND_VALUES.
         val BAND_LABELS = listOf("2.4 GHz (default)", "5 GHz", "Auto")
         val BAND_VALUES = listOf("2.4", "5", "auto")
+        // Update-check interval picker. Index order MUST match UPDATE_INTERVAL_VALUES.
+        val UPDATE_INTERVAL_LABELS = listOf("Disabled", "Every 1 hour", "Every 3 hours", "Every 6 hours (default)", "Every 12 hours", "Every 24 hours")
+        val UPDATE_INTERVAL_VALUES = listOf(0, 1, 3, 6, 12, 24)
     }
 
     private lateinit var tvStatus: TextView
@@ -79,6 +82,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvUpdateStatus: TextView
     private var updateInProgress = false
     private lateinit var tilBand: com.google.android.material.textfield.TextInputLayout
+    private lateinit var etUpdateCheckInterval: AutoCompleteTextView
 
     private val saveHandler = Handler(Looper.getMainLooper())
     private val autosaveRunnable = Runnable { autosave() }
@@ -124,6 +128,7 @@ class MainActivity : AppCompatActivity() {
         chkDisableBandSelector = findViewById(R.id.chkDisableBandSelector)
         tvPanelUrl = findViewById(R.id.tvPanelUrl)
         tilBand = findViewById(R.id.tilBand)
+        etUpdateCheckInterval = findViewById(R.id.etUpdateCheckInterval)
         etKeepaliveUrl.setText(config.keepaliveUrl)
         etKeepaliveInterval.setText((config.keepaliveIntervalMs / 1000).toString())
         chkRequireApprovalRestart.isChecked = config.requireApprovalRestart
@@ -145,6 +150,7 @@ class MainActivity : AppCompatActivity() {
         updatePortVisibility(config.proxyType)
         setupBandDropdown(config.band)
         applyBandSelectorVisibility(config.disableBandSelector)
+        setupUpdateIntervalDropdown(config.updateCheckIntervalHours)
         findViewById<TextView>(R.id.tvConfigPath).text =
             "config.txt: ${ConfigManager.externalConfigFile(this).absolutePath}"
 
@@ -185,7 +191,7 @@ class MainActivity : AppCompatActivity() {
                 checkForUpdate()
             }
         }
-        UpdateChecker.scheduleHourlyCheck(this)
+        UpdateChecker.scheduleCheck(this, config.updateCheckIntervalHours)
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -339,6 +345,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Background update-check interval dropdown. Saving re-schedules (or
+     * cancels) the WorkManager job immediately via UpdateChecker.scheduleCheck
+     * - no proxy restart needed for this to take effect.
+     */
+    private fun setupUpdateIntervalDropdown(selectedHours: Int) {
+        val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, UPDATE_INTERVAL_LABELS)
+        etUpdateCheckInterval.setAdapter(adapter)
+        val idx = UPDATE_INTERVAL_VALUES.indexOf(selectedHours).let { if (it < 0) 3 else it }
+        etUpdateCheckInterval.setText(UPDATE_INTERVAL_LABELS[idx], false)
+        etUpdateCheckInterval.setOnItemClickListener { _, _, position, _ ->
+            etUpdateCheckInterval.setText(UPDATE_INTERVAL_LABELS[position], false)
+            UpdateChecker.scheduleCheck(this, UPDATE_INTERVAL_VALUES[position])
+            autosave()
+        }
+    }
+
+    /**
      * Show only the relevant port field(s) for the chosen proxy type so the
      * form doesn't waste vertical space. Auto (0) and SOCKS5 (1) -> SOCKS5 port;
      * HTTP (2) -> HTTP port; Hybrid (3) -> both side-by-side in the row.
@@ -432,6 +455,7 @@ class MainActivity : AppCompatActivity() {
             if (it < 0) 0 else it
         }
         val band = BAND_VALUES.getOrElse(BAND_LABELS.indexOf(etBand.text.toString())) { "2.4" }
+        val updateCheckIntervalHours = UPDATE_INTERVAL_VALUES.getOrElse(UPDATE_INTERVAL_LABELS.indexOf(etUpdateCheckInterval.text.toString())) { 6 }
         if (pass.length !in 8..63) {
             tvSaved.setTextColor(0xFFC62828.toInt())
             tvSaved.text = "Password must be 8-63 characters - not saved yet"
@@ -474,7 +498,8 @@ class MainActivity : AppCompatActivity() {
                 requireApprovalRestart = chkRequireApprovalRestart.isChecked,
                 disableBandSelector = chkDisableBandSelector.isChecked,
                 telemetryEnabled = chkTelemetryEnabled.isChecked,
-                telemetryPrompted = prev.telemetryPrompted || telemetryTouched
+                telemetryPrompted = prev.telemetryPrompted || telemetryTouched,
+                updateCheckIntervalHours = updateCheckIntervalHours
             )
         )
         tvSaved.setTextColor(0xFF2E7D32.toInt())

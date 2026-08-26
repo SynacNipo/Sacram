@@ -27,21 +27,26 @@ object UpdateChecker {
     private const val WORK_NAME = "sacram_update_check"
 
     /**
-     * Schedule (or re-affirm) the hourly background check. Safe to call every
-     * time the app/service starts - KEEP policy means an already-scheduled job
-     * is left alone rather than restarted, so we don't reset its 1h window on
-     * every app open.
+     * Schedule (or re-affirm) the background update check at [intervalHours].
+     * Pass 0 (or less) to disable background checks entirely - any previously
+     * scheduled work is cancelled. Uses REPLACE so changing the interval (or
+     * disabling) takes effect immediately instead of waiting for the old
+     * window to elapse.
      */
-    fun scheduleHourlyCheck(context: Context) {
+    fun scheduleCheck(context: Context, intervalHours: Int) {
+        if (intervalHours <= 0) {
+            WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+            return
+        }
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
-        val request = PeriodicWorkRequestBuilder<UpdateWorker>(1, TimeUnit.HOURS)
+        val request = PeriodicWorkRequestBuilder<UpdateWorker>(intervalHours.toLong().coerceAtLeast(1), TimeUnit.HOURS)
             .setConstraints(constraints)
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.REPLACE,
             request
         )
     }

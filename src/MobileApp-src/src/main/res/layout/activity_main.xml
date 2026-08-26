@@ -255,6 +255,28 @@
             android:textColor="@color/text_secondary"
             android:textSize="12sp" />
 
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/tilUpdateCheckInterval"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:hint="Background update check">
+
+            <AutoCompleteTextView
+                android:id="@+id/etUpdateCheckInterval"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="How often Sacram checks GitHub for a new release and silently downloads it over your current connection (including cellular). Disable if you're on limited data."
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
