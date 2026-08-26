@@ -53,7 +53,7 @@ class MainActivity : AppCompatActivity() {
         )
         val EXPERIMENTAL_TYPES = emptySet<Int>()
         // Band picker. Index order MUST match BAND_VALUES.
-        val BAND_LABELS = listOf("2.4 GHz (default)", "5 GHz", "Auto")
+        val BAND_LABELS = listOf("2.4 GHz", "5 GHz (default)", "Auto")
         val BAND_VALUES = listOf("2.4", "5", "auto")
         // Update-check interval picker. Index order MUST match UPDATE_INTERVAL_VALUES.
         val UPDATE_INTERVAL_LABELS = listOf("Disabled", "Every 1 hour", "Every 3 hours", "Every 6 hours (default)", "Every 12 hours", "Every 24 hours")
