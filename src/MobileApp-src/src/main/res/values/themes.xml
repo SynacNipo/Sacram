@@ -14,7 +14,7 @@
         <!-- Outlined text fields get the accent stroke + rounded corners -->
         <item name="textInputStyle">@style/Widget.Sacram.TextInputLayout</item>
 
-        <item name="android:windowBackground">@drawable/bg_app_gradient</item>
+        <item name="android:windowBackground">@color/bg</item>
         <item name="android:colorBackground">@color/grad_bottom</item>
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_secondary</item>

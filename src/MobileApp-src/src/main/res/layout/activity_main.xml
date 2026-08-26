@@ -124,7 +124,7 @@
                 android:padding="14dp"
                 android:text="START PROXY"
                 android:textAllCaps="false"
-                android:textColor="#04140B"
+                android:textColor="#FFFFFF"
                 android:textSize="15sp"
                 android:textStyle="bold"
                 app:backgroundTint="@null" />

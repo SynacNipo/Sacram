@@ -1,23 +1,18 @@
 <resources>
     <color name="primary">#1B2736</color>
     <color name="on_primary">#FFFFFF</color>
-    <color name="bg">#121212</color>
+    <color name="bg">#0E0F12</color>
     <color name="text_primary">#FFFFFF</color>
-    <color name="text_secondary">#AEB7C6</color>
+    <color name="text_secondary">#9AA3B2</color>
 
-    <!-- Gradient palette -->
-    <color name="grad_top">#13203B</color>
-    <color name="grad_mid">#0D1322</color>
-    <color name="grad_bottom">#070A12</color>
-    <color name="accent">#3DDC84</color>
+    <!-- Single calm accent (no gradients) -->
+    <color name="accent">#4F8EF7</color>
+    <color name="accent_pressed">#3A78C8</color>
     <color name="accent_blue">#4F8EF7</color>
-    <color name="accent_pressed">#2AA86A</color>
     <color name="accent_blue_pressed">#3A78C8</color>
 
-    <color name="surface">#141A27</color>
-    <color name="surface_line">#222C3E</color>
-    <color name="header_start">#1F8A5B</color>
-    <color name="header_end">#2F6FD6</color>
+    <color name="surface">#171A21</color>
+    <color name="surface_line">#262B36</color>
 
     <color name="status_bg">#123026</color>
     <color name="status_border">#3DDC84</color>
