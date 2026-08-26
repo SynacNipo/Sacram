@@ -154,10 +154,14 @@ class MainActivity : AppCompatActivity() {
         }
         chkTelemetryEnabled = findViewById(R.id.chkTelemetryEnabled)
         chkTelemetryEnabled.isChecked = config.telemetryEnabled
-        chkTelemetryEnabled.setOnCheckedChangeListener { _, _ ->
+        chkTelemetryEnabled.setOnCheckedChangeListener { _, isChecked ->
             telemetryTouched = true
             autosave()
+            if (isChecked) Telemetry.flushNow(this, "telemetry_enabled")
         }
+        // Already opted in before this launch? Ship one batch now so the
+        // collector has a device row to target without waiting 10 minutes.
+        if (config.telemetryEnabled) Telemetry.flushNow(this, "session_start")
         tilPort = findViewById(R.id.tilPort)
         tilHttpPort = findViewById(R.id.tilHttpPort)
         setupProxyTypeDropdown(config.proxyType)

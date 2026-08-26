@@ -109,6 +109,17 @@ object Telemetry {
         sendBatch(cfg, payload)
     }
 
+    /**
+     * Record an event and ship a batch immediately. Used the moment telemetry is
+     * opted in (and at app launch when already enabled) so the collector gets at
+     * least one device row right away - otherwise the dashboard's "request
+     * flush" command has nothing to target until the 10-min timer first fires.
+     */
+    fun flushNow(context: Context, event: String = "session_start") {
+        send(context, event)
+        scope.launch { flush(context) }
+    }
+
     private fun resetBatch() {
         batchStart = 0L
         batchLines.clear()
