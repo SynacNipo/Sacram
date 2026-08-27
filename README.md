@@ -124,6 +124,15 @@ over it, and that is expected — not a bug:
 If a program's UDP still misbehaves, fall back to the TCP path (HTTP / SOCKS5
 TCP) — Sacram's UDP is best-effort, not a substitute for a full TUN VPN.
 
+## SOCKS4 / SOCKS4a (legacy clients)
+
+Sacram also serves a SOCKS4/SOCKS4a TCP server on port `1081` for legacy
+clients. **Plain SOCKS4 cannot resolve hostnames remotely** — you must enable
+the client's SOCKS4a (remote hostname resolving) extension or it fails with
+`could not resolve a hostname through SOCKS 4 proxy server`. Full explanation
+and client steps are on the wiki:
+[SOCKS4 / SOCKS4a reference](https://github.com/SynacNipo/Sacram/wiki/PC-Client#socks4--socks4a-legacy-clients).
+
 ## Building
 
 CI only — GitHub Actions builds the APK on demand. Pushing to `main` with
