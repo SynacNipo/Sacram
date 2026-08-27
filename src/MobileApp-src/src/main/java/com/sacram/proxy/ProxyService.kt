@@ -125,13 +125,26 @@ class ProxyService : Service() {
 
             AppState.running.value = true
             updateStatus("Checking WiFi...")
-            val wifiOk = WifiDirectManager(this@ProxyService).ensureWifiOn()
+            var wifiOk = WifiDirectManager(this@ProxyService).ensureWifiOn()
             Log.i(TAG, "ensureWifiOn result=$wifiOk")
             if (!wifiOk) {
-                Telemetry.send(this, "proxy_error", mapOf("reason" to "wifi_off") + Telemetry.batteryInfo(this))
-                updateStatus("ERROR [01]: WiFi is off - turn on WiFi to start the hotspot")
-                stopSelf()
-                return
+                if (config.autoRestartOnWifiReturn) {
+                    // Keep the service alive and wait for WiFi to come back, then
+                    // continue the pipeline on its own (no manual off/on needed).
+                    while (!wifiOk && started.get()) {
+                        if (!ConfigManager.load(this@ProxyService).autoRestartOnWifiReturn) break
+                        updateStatus("WiFi is off - waiting for it to return before (re)starting the proxy...")
+                        Telemetry.send(this, "wifi_waiting", mapOf("reason" to "wifi_off_wait") + Telemetry.batteryInfo(this))
+                        delay(5000)
+                        wifiOk = WifiDirectManager(this@ProxyService).ensureWifiOn()
+                    }
+                }
+                if (!wifiOk) {
+                    Telemetry.send(this, "proxy_error", mapOf("reason" to "wifi_off") + Telemetry.batteryInfo(this))
+                    updateStatus("ERROR [01]: WiFi is off - turn on WiFi to start the hotspot")
+                    stopSelf()
+                    return
+                }
             }
             Telemetry.send(this, "proxy_starting", mapOf("wifi_auto_ok" to "$wifiOk", "port" to "${config.port}"))
             val p2p = WifiDirectManager(this)
@@ -295,9 +308,10 @@ class ProxyService : Service() {
                         // RUNNING while 192.168.49.1 is unreachable) is worse: the
                         // client's browser just redials on the next request anyway.
                         if (!groupRecreateGuard && started.get()) {
-                            if (groupRecreateCount >= groupRecreateMax) {
-                                // Already retried the cap number of times; stop
-                                // spamming recreation + telemetry and leave it dead.
+                            if (!config.keepRetryingReform && groupRecreateCount >= groupRecreateMax) {
+                                // Already retried the cap number of times and the
+                                // "keep retrying" toggle is off; stop spamming
+                                // recreation + telemetry and leave it dead.
                                 AppState.status.value = "RUNNING - AP gave up re-forming (max $groupRecreateMax retries)"
                                 return@requestGroupInfo
                             }

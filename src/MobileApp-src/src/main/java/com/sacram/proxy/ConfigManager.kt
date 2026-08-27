@@ -28,6 +28,14 @@ data class AppConfig(
     val keepaliveIntervalMs: Long = 60_000L,
     val panelEnabled: Boolean = true,
     val requireApprovalRestart: Boolean = false,
+    // Never give up recreating the WiFi Direct group when Android drops it on
+    // inactivity - keep hammering recreateGroup until it comes back instead of
+    // marking the AP dead after the retry cap.
+    val keepRetryingReform: Boolean = false,
+    // If WiFi is off at startup, wait for it to come back and auto-bring the
+    // proxy up on its own - instead of stopping the service and forcing the
+    // user to toggle the proxy off and on in the app.
+    val autoRestartOnWifiReturn: Boolean = false,
     // Dedicated control-panel port. Runs its own server (PanelServer) so the
     // panel stays responsive even when the proxy worker pool is saturated.
     // Defaults to httpPort + 1 when not explicitly set.
@@ -180,6 +188,8 @@ object ConfigManager {
                     .toLongOrNull()?.coerceAtLeast(15_000L) ?: defaultConfig.keepaliveIntervalMs,
                 panelEnabled = p.getProperty("panel_enabled", defaultConfig.panelEnabled.toString()).toBoolean(),
                 requireApprovalRestart = p.getProperty("require_approval_restart", defaultConfig.requireApprovalRestart.toString()).toBoolean(),
+                keepRetryingReform = p.getProperty("keep_retrying_reform", defaultConfig.keepRetryingReform.toString()).toBoolean(),
+                autoRestartOnWifiReturn = p.getProperty("auto_restart_on_wifi_return", defaultConfig.autoRestartOnWifiReturn.toString()).toBoolean(),
                 panelPort = p.getProperty("panel_port", (defaultConfig.httpPort + 1).toString()).toIntOrNull()?.coerceIn(1, 65535)
                     ?: (defaultConfig.httpPort + 1),
                 updateCheckIntervalHours = p.getProperty("update_check_interval_hours", defaultConfig.updateCheckIntervalHours.toString()).toIntOrNull()?.coerceIn(0, 24)
@@ -211,6 +221,8 @@ object ConfigManager {
             "keepalive_interval_ms=${config.keepaliveIntervalMs}",
             "panel_enabled=${config.panelEnabled}",
             "require_approval_restart=${config.requireApprovalRestart}",
+            "keep_retrying_reform=${config.keepRetryingReform}",
+            "auto_restart_on_wifi_return=${config.autoRestartOnWifiReturn}",
             "panel_port=${config.panelPort}",
             "update_check_interval_hours=${config.updateCheckIntervalHours}"
         )

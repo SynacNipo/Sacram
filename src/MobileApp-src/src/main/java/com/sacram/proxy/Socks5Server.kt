@@ -72,6 +72,15 @@ class Socks5Server(
 
     private val maxUdpSessions = 1024
 
+    // Socket buffer sizes, mirroring HttpProxyServer. Cellular egress is
+    // high-latency, so the bandwidth-delay product is large; platform-default
+    // buffers (~8-64KB) cap a single stream's throughput well below what the
+    // radio can do. Applied to the client TCP socket, every upstream TCP
+    // socket, and the UDP relay/session sockets so large transfers and bulk
+    // UDP (e.g. game streaming, voice) can actually saturate the link.
+    private val socketRcvBuf = 512 * 1024
+    private val socketSndBuf = 512 * 1024
+
     // Idle timeout for CONNECT tunnels. Longer than any per-request read timeout:
     // a stalled upstream with no soTimeout blocks its pump coroutine forever.
     private val tunnelIdleTimeoutMs = 100_000
@@ -108,6 +117,11 @@ class Socks5Server(
                 onLog("WARNING: no cellular network available - outbound sockets use the default route")
             }
         }
+    }
+
+    private fun tuneSocket(sock: Socket) {
+        runCatching { sock.setReceiveBufferSize(socketRcvBuf) }
+        runCatching { sock.setSendBufferSize(socketSndBuf) }
     }
 
     // key "clientIp:port" -> forwarding socket for UDP sessions
@@ -598,6 +612,6 @@ class Socks5Server(
     companion object {
         // Reused across pump() calls on the same worker thread so concurrent
         // tunnels don't each allocate a fresh 64KB buffer (GC churn under load).
-        private val PUMP_BUF = ThreadLocal.withInitial { ByteArray(65536) }
+        private val PUMP_BUF = ThreadLocal.withInitial { ByteArray(131072) }
     }
 }

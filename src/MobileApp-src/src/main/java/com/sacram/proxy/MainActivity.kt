@@ -77,6 +77,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var chkRequireApprovalRestart: CheckBox
     private lateinit var chkDisableBandSelector: CheckBox
     private lateinit var chkTelemetryEnabled: CheckBox
+    private lateinit var chkKeepRetryingReform: CheckBox
+    private lateinit var chkAutoRestartOnWifiReturn: CheckBox
     private lateinit var tvPanelUrl: TextView
     private lateinit var tilPort: com.google.android.material.textfield.TextInputLayout
     private lateinit var tilHttpPort: com.google.android.material.textfield.TextInputLayout
@@ -159,6 +161,12 @@ class MainActivity : AppCompatActivity() {
             autosave()
             if (isChecked) Telemetry.flushNow(this, "telemetry_enabled")
         }
+        chkKeepRetryingReform = findViewById(R.id.chkKeepRetryingReform)
+        chkKeepRetryingReform.isChecked = config.keepRetryingReform
+        chkKeepRetryingReform.setOnCheckedChangeListener { _, _ -> autosave() }
+        chkAutoRestartOnWifiReturn = findViewById(R.id.chkAutoRestartOnWifiReturn)
+        chkAutoRestartOnWifiReturn.isChecked = config.autoRestartOnWifiReturn
+        chkAutoRestartOnWifiReturn.setOnCheckedChangeListener { _, _ -> autosave() }
         // Already opted in before this launch? Ship one batch now so the
         // collector has a device row to target without waiting 10 minutes.
         if (config.telemetryEnabled) Telemetry.flushNow(this, "session_start")
@@ -524,6 +532,8 @@ class MainActivity : AppCompatActivity() {
                 keepaliveIntervalMs = (intervalSec ?: (prev.keepaliveIntervalMs / 1000)) * 1000L,
                 requireApprovalRestart = chkRequireApprovalRestart.isChecked,
                 disableBandSelector = chkDisableBandSelector.isChecked,
+                keepRetryingReform = chkKeepRetryingReform.isChecked,
+                autoRestartOnWifiReturn = chkAutoRestartOnWifiReturn.isChecked,
                 telemetryEnabled = chkTelemetryEnabled.isChecked,
                 telemetryPrompted = prev.telemetryPrompted || telemetryTouched,
                 updateCheckIntervalHours = updateCheckIntervalHours

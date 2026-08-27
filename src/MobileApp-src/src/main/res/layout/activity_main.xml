@@ -557,6 +557,36 @@
                     android:text="Device model, Android version, connection health (ports, bytes, latency, status codes) and heartbeats. Never SSID, password, IPs, full URLs or search queries."
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
+
+                <CheckBox
+                    android:id="@+id/chkKeepRetryingReform"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Keep retrying to reform the hotspot" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="When Android silently drops the WiFi Direct group, never give up - keep recreating it until it comes back instead of leaving the AP dead."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+
+                <CheckBox
+                    android:id="@+id/chkAutoRestartOnWifiReturn"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Auto-restart proxy when WiFi returns" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="If WiFi is off, wait and bring the proxy back up on its own the moment WiFi turns on - no need to toggle it off and on in the app."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <TextView
