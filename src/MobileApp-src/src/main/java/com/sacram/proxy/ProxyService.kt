@@ -68,6 +68,7 @@ class ProxyService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
     private var socks: Socks5Server? = null
+    private var socks4: Socks4Server? = null
     private var http: HttpProxyServer? = null
     private var panel: PanelServer? = null
     private var wifiLock: WifiManager.WifiLock? = null
@@ -221,8 +222,9 @@ class ProxyService : Service() {
                     http = server
                     server.start()
                     Log.i(TAG, "HTTP proxy started on $goIp:${config.httpPort}")
+                    startSocks4(goIp, config)
                     AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0, config.panelPort)
-                    updateStatus("RUNNING (HTTP) - connect to '$actualSsid' then HTTP proxy $goIp:${config.httpPort}")
+                    updateStatus("RUNNING (HTTP) - connect to '$actualSsid' then HTTP proxy $goIp:${config.httpPort} and SOCKS4 $goIp:${config.socks4Port}")
                     updateNotification(actualSsid, actualPass, goIp, config.httpPort, 0, false, config.panelPort)
                     Telemetry.send(this, "proxy_started", mapOf("mode" to "http", "port" to "${config.httpPort}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
                 }
@@ -247,8 +249,9 @@ class ProxyService : Service() {
                     http = server
                     server.start()
                     Log.i(TAG, "HTTP proxy started on $goIp:${config.httpPort}")
+                    startSocks4(goIp, config)
                     AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0, config.panelPort)
-                    updateStatus("RUNNING (HYBRID) - connect to '$actualSsid' then SOCKS5 $goIp:${config.port} and HTTP $goIp:${config.httpPort}")
+                    updateStatus("RUNNING (HYBRID) - connect to '$actualSsid' then SOCKS5 $goIp:${config.port} and HTTP $goIp:${config.httpPort} and SOCKS4 $goIp:${config.socks4Port}")
                     updateNotification(actualSsid, actualPass, goIp, config.port, config.httpPort, true, config.panelPort)
                     Telemetry.send(this, "proxy_started", mapOf("mode" to "hybrid", "port" to "${config.port}", "http_port" to "${config.httpPort}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
                 }
@@ -261,8 +264,9 @@ class ProxyService : Service() {
                         onLog = { updateStatus("  $it") }
                     ).also { it.start() }
                     Log.i(TAG, "SOCKS5 started on $goIp:${config.port}")
+                    startSocks4(goIp, config)
                     AppState.apInfo.value = ApInfo(actualSsid, actualPass, goIp, 0, config.panelPort)
-                    updateStatus("RUNNING - connect to '$actualSsid' then SOCKS5 $goIp:${config.port}")
+                    updateStatus("RUNNING - connect to '$actualSsid' then SOCKS5 $goIp:${config.port} and SOCKS4 $goIp:${config.socks4Port}")
                     updateNotification(actualSsid, actualPass, goIp, config.port, 0, false, config.panelPort)
                     Telemetry.send(this, "proxy_started", mapOf("mode" to "socks5", "port" to "${config.port}", "wifi_auto_ok" to "$wifiOk") + Telemetry.batteryInfo(this))
                 }
@@ -381,8 +385,24 @@ class ProxyService : Service() {
         }.apply { startWatching() }
     }
 
-    private fun handlePanelRestart() {
-        val cfg = ConfigManager.load(this)
+    /**
+     * Starts the SOCKS4 backward-compatibility server on its own port. Runs in
+     * every mode (socks5/http/hybrid) so legacy SOCKS4/SOCKS4a clients can use
+     * the proxy alongside SOCKS5 and HTTP.
+     */
+    private fun startSocks4(goIp: String, config: AppConfig) {
+        updateStatus("Starting SOCKS4 proxy on $goIp:${config.socks4Port}...")
+        val server = Socks4Server(
+            port = config.socks4Port,
+            context = this,
+            onLog = { updateStatus("  $it") }
+        )
+        socks4 = server
+        server.start()
+        Log.i(TAG, "SOCKS4 started on $goIp:${config.socks4Port}")
+    }
+
+    private fun handlePanelRestart() {        val cfg = ConfigManager.load(this)
         if (cfg.requireApprovalRestart) {
             PanelApproval.submit(mapOf("action" to "restart"))
         } else {
@@ -445,9 +465,11 @@ class ProxyService : Service() {
             Telemetry.send(this@ProxyService, "proxy_restart", mapOf("reason" to "config_changed", "uptime" to uptimeSeconds()) + Telemetry.batteryInfo(this@ProxyService))
             updateStatus("Config changed, restarting...")
             runCatching { socks?.stop() }
+            runCatching { socks4?.stop() }
             runCatching { http?.stop() }
             runCatching { panel?.stop() }
             socks = null
+            socks4 = null
             http = null
             panel = null
             val p2p = WifiDirectManager(this@ProxyService)
@@ -467,9 +489,11 @@ class ProxyService : Service() {
         keepAliveJob?.cancel()
         runCatching { fileObserver?.stopWatching() }
         runCatching { socks?.stop() }
+        runCatching { socks4?.stop() }
         runCatching { http?.stop() }
         runCatching { panel?.stop() }
         socks = null
+        socks4 = null
         http = null
         panel = null
         runCatching { WifiDirectManager(this).removeGroup() }

@@ -20,6 +20,10 @@ data class AppConfig(
     val proxyMode: String = "socks5",
     val proxyType: Int = 0, // 0=Auto (SOCKS5+HTTP) [default], 1=SOCKS5, 2=HTTP, 3=Hybrid (SOCKS5+HTTP)
     val httpPort: Int = 8282,
+    // Dedicated SOCKS4 backward-compatibility port. Runs its own server
+    // (Socks4Server) alongside SOCKS5 so legacy SOCKS4/SOCKS4a clients work.
+    // Defaults to the SOCKS5 port + 1.
+    val socks4Port: Int = 1081,
     val telemetryPrompted: Boolean = false,
     val telemetryEnabled: Boolean = false,
     val collectorUrl: String = "https://sacram-telemetry.synacnipo.workers.dev",
@@ -175,6 +179,8 @@ object ConfigManager {
                 proxyType = p.getProperty("proxy_type", "0").toIntOrNull() ?: 0,
                 httpPort = p.getProperty("http_port", defaultConfig.httpPort.toString()).toIntOrNull()
                     ?: defaultConfig.httpPort,
+                socks4Port = p.getProperty("socks4_port", defaultConfig.socks4Port.toString()).toIntOrNull()
+                    ?.coerceIn(1, 65535) ?: defaultConfig.socks4Port,
                 telemetryPrompted = p.getProperty("telemetry_prompted", "false").toBoolean(),
                 telemetryEnabled = p.getProperty("telemetry_enabled", "false").toBoolean(),
                 collectorUrl = p.getProperty("collector_url", defaultConfig.collectorUrl)
@@ -213,6 +219,7 @@ object ConfigManager {
             "proxy_mode=${config.proxyMode}",
             "proxy_type=${config.proxyType}",
             "http_port=${config.httpPort}",
+            "socks4_port=${config.socks4Port}",
             "telemetry_prompted=${config.telemetryPrompted}",
             "telemetry_enabled=${config.telemetryEnabled}",
             "collector_url=${config.collectorUrl}",
