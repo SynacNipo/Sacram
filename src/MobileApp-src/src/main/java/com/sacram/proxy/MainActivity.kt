@@ -907,180 +907,167 @@ class MainActivity : AppCompatActivity() {
             paintPill()
             if (changed || !animate) placePill(animate)
         }
+        // --- 2-column release grid: only shows the selected channel ---
+        val releaseGrid = android.widget.GridLayout(this).apply {
+            columnCount = 2
+            useDefaultMargins = false
+        }
+        container.addView(releaseGrid)
+
+        fun buildReleaseCard(r: UpdateChecker.ReleaseInfo): android.widget.LinearLayout {
+            val isInstalled = r.version == currentVersion ||
+                currentVersion.contains(r.version) && !currentVersion.contains("patch") && !currentVersion.contains("nightly")
+
+            val card = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card)?.mutate()
+                setPadding(12.dp, 12.dp, 12.dp, 12.dp)
+            }
+
+            val topRow = android.widget.LinearLayout(this).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            topRow.addView(TextView(this).apply {
+                text = r.version
+                setTextColor(cPrimary); textSize = 15f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+            if (r.apkSize > 0) {
+                topRow.addView(TextView(this).apply {
+                    text = " \u00b7 ${r.sizeLabel}"
+                    setTextColor(cSecondary); textSize = 11f
+                })
+            }
+            card.addView(topRow)
+
+            card.addView(TextView(this).apply {
+                text = r.dateLabel
+                setTextColor(cSecondary); textSize = 11f
+                setPadding(0, 2.dp, 0, 0)
+            })
+
+            if (isInstalled) {
+                card.addView(TextView(this).apply {
+                    text = "\u2713 Installed"
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent))
+                    textSize = 11f; typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    setPadding(0, 6.dp, 0, 0)
+                })
+            } else {
+                val installBtn = android.widget.Button(this).apply {
+                    text = "Install"
+                    textSize = 13f; typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    isAllCaps = false; minimumHeight = 0
+                    minHeight = 0; minimumWidth = 0
+                    setPadding(12.dp, 10.dp, 12.dp, 10.dp)
+                    background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_button_primary)?.mutate()
+                    backgroundTintList = null
+                    setTextColor(cOnPrimary)
+                    val lp = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                    lp.topMargin = 8.dp
+                    layoutParams = lp
+                }
+                buttons.add(installBtn)
+                installBtn.setOnClickListener {
+                    for (b in buttons) b.isEnabled = false
+                    installBtn.text = "..."
+                    installBtn.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_button_secondary)?.mutate()
+                    installBtn.backgroundTintList = null
+                    installBtn.setTextColor(cSecondary)
+                    lifecycleScope.launch {
+                        try {
+                            val file = withContext(Dispatchers.IO) {
+                                UpdateChecker.downloadApk(this@MainActivity, r.tag) { pct ->
+                                    runOnUiThread { runCatching { installBtn.text = "$pct%" } }
+                                }
+                            }
+                            if (file != null) {
+                                AppState.updateAvailable.value = r.tag
+                                runCatching { Toast.makeText(this@MainActivity, "Downloaded ${r.version}", Toast.LENGTH_SHORT).show() }
+                                launchInstaller(file)
+                            } else {
+                                runCatching { Toast.makeText(this@MainActivity, "Download failed", Toast.LENGTH_SHORT).show() }
+                            }
+                        } catch (_: Exception) {
+                            runCatching { Toast.makeText(this@MainActivity, "Download failed", Toast.LENGTH_SHORT).show() }
+                        } finally {
+                            for (b in buttons) b.isEnabled = true
+                            installBtn.text = "Install"
+                            installBtn.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_button_primary)?.mutate()
+                            installBtn.backgroundTintList = null
+                            installBtn.setTextColor(cOnPrimary)
+                        }
+                    }
+                }
+                card.addView(installBtn)
+            }
+            return card
+        }
+
+        fun showChannel(ch: String) {
+            buttons.clear()
+            releaseGrid.removeAllViews()
+            val items = if (ch == "beta") beta else stable
+            if (items.isEmpty()) {
+                val empty = TextView(this).apply {
+                    text = if (ch == "beta") "No beta releases yet" else "No stable releases yet"
+                    setTextColor(cSecondary); textSize = 13f
+                    setPadding(0, 28.dp, 0, 0)
+                    gravity = android.view.Gravity.CENTER
+                }
+                val p = android.widget.GridLayout.LayoutParams()
+                p.columnSpec = android.widget.GridLayout.spec(0, 2)
+                p.width = android.widget.GridLayout.LayoutParams.MATCH_PARENT
+                empty.layoutParams = p
+                releaseGrid.addView(empty)
+            } else {
+                for (r in items) {
+                    val card = buildReleaseCard(r)
+                    val p = android.widget.GridLayout.LayoutParams().apply {
+                        width = 0
+                        height = android.widget.GridLayout.LayoutParams.WRAP_CONTENT
+                        columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+                        setMargins(4.dp, 0, 4.dp, 8.dp)
+                    }
+                    card.layoutParams = p
+                    releaseGrid.addView(card)
+                }
+            }
+        }
+
+        showChannel(channel)
+
         tvStable.setOnClickListener {
             if (pillSelected != 0) {
                 selectPill(0)
+                channel = "stable"
                 runCatching {
-                    channel = "stable"
                     ConfigManager.save(this, ConfigManager.load(this).copy(updateChannel = "stable"))
-                    statusTv.text = "Background checks \u00b7 stable releases"
-                    runCatching { tvUpdateStatus.text = "Stable channel \u00b7 You're running $currentVersion." }
+                    tvUpdateStatus.text = "Stable channel \u00b7 You're running $currentVersion."
                 }
+                statusTv.text = "Background checks \u00b7 stable releases"
+                showChannel("stable")
             }
         }
         tvBeta.setOnClickListener {
             if (pillSelected != 1) {
                 selectPill(1)
+                channel = "beta"
                 runCatching {
-                    channel = "beta"
                     ConfigManager.save(this, ConfigManager.load(this).copy(updateChannel = "beta"))
-                    statusTv.text = "Background checks \u00b7 beta builds"
-                    runCatching { tvUpdateStatus.text = "Beta channel \u00b7 You're running $currentVersion." }
+                    tvUpdateStatus.text = "Beta channel \u00b7 You're running $currentVersion."
                 }
+                statusTv.text = "Background checks \u00b7 beta builds"
+                showChannel("beta")
             }
         }
         // initial paint + placement after layout
         pill.post { selectPill(pillSelected, animate = false) }
         pill.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placePill(false) }
-
-        // --- release sections ---
-        fun addSection(headerText: String, iconRes: Int, items: List<UpdateChecker.ReleaseInfo>) {
-            if (items.isEmpty()) return
-            container.addView(TextView(this).apply {
-                text = headerText
-                setTextColor(cSecondary); textSize = 12f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                letterSpacing = 0.06f
-                compoundDrawablePadding = 8.dp
-                setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0)
-                setPadding(0, 22.dp, 0, 10.dp)
-            })
-            for (r in items) {
-                val isInstalled = r.version == currentVersion ||
-                    currentVersion.contains(r.version) && !currentVersion.contains("patch") && !currentVersion.contains("nightly")
-
-                val card = android.widget.LinearLayout(this).apply {
-                    orientation = android.widget.LinearLayout.VERTICAL
-                    background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card)?.mutate()
-                    setPadding(14.dp, 14.dp, 14.dp, 14.dp)
-                    val m = android.widget.LinearLayout.LayoutParams(
-                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                    )
-                    m.bottomMargin = 10.dp
-                    layoutParams = m
-                }
-
-                // Top row: version + badge + size
-                val topRow = android.widget.LinearLayout(this).apply {
-                    orientation = android.widget.LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                }
-                topRow.addView(TextView(this).apply {
-                    text = r.version
-                    setTextColor(cPrimary); textSize = 16f
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                })
-                // channel badge - small pill using surface_line
-                val badge = TextView(this).apply {
-                    text = if (r.isBeta) " BETA" else " STABLE"
-                    setTextColor(cSecondary); textSize = 10f
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    letterSpacing = 0.04f
-                    setPadding(6.dp, 0, 0, 0)
-                }
-                topRow.addView(badge)
-                if (isInstalled) {
-                    topRow.addView(TextView(this).apply {
-                        text = "  \u2022 Installed"
-                        setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent))
-                        textSize = 10f; typeface = android.graphics.Typeface.DEFAULT_BOLD
-                        setPadding(6.dp, 0, 0, 0)
-                    })
-                }
-                topRow.addView(View(this).apply {
-                    layoutParams = android.widget.LinearLayout.LayoutParams(0, 0, 1f)
-                })
-                if (r.apkSize > 0) {
-                    topRow.addView(TextView(this).apply {
-                        text = r.sizeLabel
-                        setTextColor(cSecondary); textSize = 12f
-                    })
-                }
-                card.addView(topRow)
-
-                // Date row
-                card.addView(TextView(this).apply {
-                    text = r.dateLabel
-                    setTextColor(cSecondary); textSize = 12f
-                    setPadding(0, 4.dp, 0, 0)
-                })
-                // tag line (full tag)
-                if (r.tag != r.version) {
-                    card.addView(TextView(this).apply {
-                        text = r.tag
-                        setTextColor(cSecondary); textSize = 11f
-                        alpha = 0.75f
-                        typeface = android.graphics.Typeface.MONOSPACE
-                        setPadding(0, 2.dp, 0, 0)
-                    })
-                }
-
-                // Install button - full-width like app primary buttons
-                val installBtn = android.widget.Button(this).apply {
-                    text = if (isInstalled) "Installed" else "Install ${r.version}"
-                    textSize = 14f; typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    isAllCaps = false
-                    minHeight = 50.dp
-                    setPadding(14.dp, 14.dp, 14.dp, 14.dp)
-                    background = ContextCompat.getDrawable(
-                        this@MainActivity,
-                        if (isInstalled) R.drawable.bg_button_secondary else R.drawable.bg_button_primary
-                    )?.mutate()
-                    // backgroundTint must be null to respect drawable
-                    backgroundTintList = null
-                    setTextColor(if (isInstalled) cSecondary else cOnPrimary)
-                    isEnabled = !isInstalled
-                    val lp2 = android.widget.LinearLayout.LayoutParams(
-                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                    )
-                    lp2.topMargin = 12.dp
-                    layoutParams = lp2
-                }
-                buttons.add(installBtn)
-
-                if (!isInstalled) {
-                    installBtn.setOnClickListener {
-                        for (b in buttons) b.isEnabled = false
-                        installBtn.text = "Downloading..."
-                        // swap to secondary look while downloading
-                        installBtn.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_button_secondary)?.mutate()
-                        installBtn.backgroundTintList = null
-                        installBtn.setTextColor(cSecondary)
-                        lifecycleScope.launch {
-                            try {
-                                val file = withContext(Dispatchers.IO) {
-                                    UpdateChecker.downloadApk(this@MainActivity, r.tag) { pct ->
-                                        runOnUiThread { runCatching { installBtn.text = "Downloading $pct%" } }
-                                    }
-                                }
-                                if (file != null) {
-                                    AppState.updateAvailable.value = r.tag
-                                    runCatching { Toast.makeText(this@MainActivity, "Downloaded ${r.version} \u2014 opening installer", Toast.LENGTH_SHORT).show() }
-                                    launchInstaller(file)
-                                } else {
-                                    runCatching { Toast.makeText(this@MainActivity, "Download failed \u2014 check connection", Toast.LENGTH_SHORT).show() }
-                                }
-                            } catch (_: Exception) {
-                                runCatching { Toast.makeText(this@MainActivity, "Download failed", Toast.LENGTH_SHORT).show() }
-                            } finally {
-                                for (b in buttons) b.isEnabled = true
-                                installBtn.text = "Install ${r.version}"
-                                installBtn.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_button_primary)?.mutate()
-                                installBtn.backgroundTintList = null
-                                installBtn.setTextColor(cOnPrimary)
-                            }
-                        }
-                    }
-                }
-                card.addView(installBtn)
-                container.addView(card)
-            }
-        }
-
-        addSection("STABLE RELEASES", R.drawable.ic_server, stable)
-        addSection("BETA BUILDS", R.drawable.ic_pulse, beta)
 
         scroll.addView(container)
         outer.addView(scroll)
@@ -1089,13 +1076,15 @@ class MainActivity : AppCompatActivity() {
             .setView(outer)
             .setNegativeButton("Close", null)
             .create()
-        // Match app dark surface
         runCatching { dialog.window?.setBackgroundDrawableResource(android.R.color.transparent) }
         dialog.show()
-        // Tint dialog background to app bg after show
+        // Widen dialog for 2-column grid, then tint
         runCatching {
-            val bg = dialog.window?.decorView
-            bg?.setBackgroundColor(cBg)
+            val w = dialog.window ?: return@runCatching
+            val metrics = resources.displayMetrics
+            w.setLayout((metrics.widthPixels * 0.92f).toInt(), android.view.WindowManager.LayoutParams.WRAP_CONTENT)
+            w.setBackgroundDrawableResource(android.R.color.transparent)
+            w.decorView.setBackgroundColor(cBg)
         }
     }
 
