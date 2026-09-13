@@ -1012,6 +1012,88 @@ class MainActivity : AppCompatActivity() {
             buttons.clear()
             releaseGrid.removeAllViews()
             val items = if (ch == "beta") beta else stable
+
+            // --- builds-behind banner ---
+            if (items.isNotEmpty()) {
+                val latest = items.first()
+                val latestVersion = latest.version
+                val isOnLatest = currentVersion == latestVersion ||
+                    currentVersion.contains(latestVersion) && !currentVersion.contains("patch") && !currentVersion.contains("nightly")
+                if (!isOnLatest) {
+                    // count how many releases sit between current and latest
+                    val behind = items.indexOfFirst { r ->
+                        currentVersion == r.version ||
+                            (currentVersion.contains(r.version) && !currentVersion.contains("patch"))
+                    }.let { idx -> if (idx < 0) items.size else idx }
+
+                    val banner = android.widget.LinearLayout(this).apply {
+                        orientation = android.widget.LinearLayout.HORIZONTAL
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                        background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_status)?.mutate()
+                        setPadding(14.dp, 12.dp, 12.dp, 12.dp)
+                    }
+                    val buildText = if (behind == 1) "1 build" else "$behind builds"
+                    banner.addView(TextView(this).apply {
+                        text = "You're $buildText behind \u00b7 $latestVersion"
+                        setTextColor(cSecondary); textSize = 12f
+                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                        layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+
+                    val dlBtn = android.widget.Button(this).apply {
+                        text = "Update"
+                        textSize = 12f; typeface = android.graphics.Typeface.DEFAULT_BOLD
+                        isAllCaps = false; minimumHeight = 0
+                        minHeight = 0; minimumWidth = 0
+                        setPadding(14.dp, 8.dp, 14.dp, 8.dp)
+                        background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_button_primary)?.mutate()
+                        backgroundTintList = null
+                        setTextColor(cOnPrimary)
+                    }
+                    dlBtn.setOnClickListener {
+                        for (b in buttons) b.isEnabled = false
+                        dlBtn.isEnabled = false
+                        dlBtn.text = "..."
+                        dlBtn.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_button_secondary)?.mutate()
+                        dlBtn.backgroundTintList = null
+                        dlBtn.setTextColor(cSecondary)
+                        lifecycleScope.launch {
+                            try {
+                                val file = withContext(Dispatchers.IO) {
+                                    UpdateChecker.downloadApk(this@MainActivity, latest.tag) { pct ->
+                                        runOnUiThread { runCatching { dlBtn.text = "$pct%" } }
+                                    }
+                                }
+                                if (file != null) {
+                                    AppState.updateAvailable.value = latest.tag
+                                    runCatching { Toast.makeText(this@MainActivity, "Downloaded ${latest.version}", Toast.LENGTH_SHORT).show() }
+                                    launchInstaller(file)
+                                } else {
+                                    runCatching { Toast.makeText(this@MainActivity, "Download failed", Toast.LENGTH_SHORT).show() }
+                                }
+                            } catch (_: Exception) {
+                                runCatching { Toast.makeText(this@MainActivity, "Download failed", Toast.LENGTH_SHORT).show() }
+                            } finally {
+                                for (b in buttons) b.isEnabled = true
+                                dlBtn.isEnabled = true
+                                dlBtn.text = "Update"
+                                dlBtn.background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_button_primary)?.mutate()
+                                dlBtn.backgroundTintList = null
+                                dlBtn.setTextColor(cOnPrimary)
+                            }
+                        }
+                    }
+                    banner.addView(dlBtn)
+
+                    val bannerP = android.widget.GridLayout.LayoutParams()
+                    bannerP.columnSpec = android.widget.GridLayout.spec(0, 2)
+                    bannerP.width = android.widget.GridLayout.LayoutParams.MATCH_PARENT
+                    bannerP.setMargins(0, 0, 0, 4.dp)
+                    banner.layoutParams = bannerP
+                    releaseGrid.addView(banner)
+                }
+            }
+
             if (items.isEmpty()) {
                 val empty = TextView(this).apply {
                     text = if (ch == "beta") "No beta releases yet" else "No stable releases yet"
