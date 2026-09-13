@@ -26,6 +26,99 @@ object UpdateChecker {
     private const val REPO_API = "https://api.github.com/repos/SynacNipo/Sacram/releases/latest"
     private const val WORK_NAME = "sacram_update_check"
 
+    /** Parsed release metadata for the release picker dialog. */
+    data class ReleaseInfo(
+        val tag: String,
+        val name: String,
+        val publishedAt: String,
+        val isBeta: Boolean,
+        val apkSize: Long,
+        val apkUrl: String
+    ) {
+        val version: String
+            get() {
+                val m = Regex("""v?(\d+\.\d+)""").find(tag)
+                return m?.groupValues?.get(1) ?: tag
+            }
+
+        val label: String
+            get() = name.ifEmpty { tag }
+
+        val sizeLabel: String
+            get() = when {
+                apkSize <= 0 -> "—"
+                apkSize < 1024 -> "$apkSize B"
+                apkSize < 1048576 -> "${apkSize / 1024} KB"
+                else -> "${"%.1f".format(apkSize / 1048576.0)} MB"
+            }
+
+        val dateLabel: String
+            get() = try {
+                val raw = publishedAt.substringBefore("+").substringBefore("Z").substringBefore(".")
+                val parsed = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                    .parse(raw)
+                if (parsed != null) {
+                    java.text.SimpleDateFormat("MMM d, yyyy 'at' h:mm a", java.util.Locale.US).format(parsed)
+                } else {
+                    publishedAt.substringBefore("T")
+                }
+            } catch (_: Exception) {
+                publishedAt.substringBefore("T")
+            }
+    }
+
+    /** Fetch all releases (stable + beta) and return parsed [ReleaseInfo] list. */
+    fun fetchAllReleases(): List<ReleaseInfo> {
+        return try {
+            val conn = URL(REPO_LIST).openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("User-Agent", "Sacram-App")
+            conn.connectTimeout = 10000
+            conn.readTimeout = 10000
+            try {
+                if (conn.responseCode != 200) return emptyList()
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val releases = mutableListOf<ReleaseInfo>()
+
+                // Split the JSON array into per-release objects by matching top-level braces.
+                // Each chunk starts after a "{" and ends at the matching "}". This avoids
+                // needing a full JSON parser while still correctly handling nested objects
+                // (e.g. asset arrays with their own braces).
+                val chunks = mutableListOf<String>()
+                var depth = 0
+                var start = -1
+                for (i in body.indices) {
+                    when (body[i]) {
+                        '{' -> { if (depth == 0) start = i; depth++ }
+                        '}' -> { depth--; if (depth == 0 && start >= 0) { chunks.add(body.substring(start, i + 1)); start = -1 } }
+                    }
+                }
+
+                for (chunk in chunks) {
+                    if (Regex(""""draft"\s*:\s*true""").containsMatchIn(chunk)) continue
+                    val tag = Regex(""""tag_name"\s*:\s*"([^"]+)"""").find(chunk)?.groupValues?.get(1) ?: continue
+                    val name = Regex(""""name"\s*:\s*"([^"]*)"""").find(chunk)?.groupValues?.get(1) ?: ""
+                    val publishedAt = Regex(""""published_at"\s*:\s*"([^"]+)"""").find(chunk)?.groupValues?.get(1) ?: ""
+                    val isBeta = "networkingpatch" in tag
+                    // Find the APK asset inside the release's assets array.
+                    val assetsMatch = Regex(""""assets"\s*:\s*\[(.*?)\]""", RegexOption.DOT_MATCHES_ALL).find(chunk)
+                    val assetsSection = assetsMatch?.groupValues?.get(1) ?: ""
+                    val apkMatch = Regex(""""browser_download_url"\s*:\s*"([^"]*sacram\.apk[^"]*)"""").find(assetsSection)
+                    val apkUrl = apkMatch?.groupValues?.get(1)
+                        ?: "https://github.com/SynacNipo/Sacram/releases/download/$tag/sacram.apk"
+                    val sizeMatch = Regex(""""size"\s*:\s*(\d+)""").find(assetsSection)
+                    val apkSize = sizeMatch?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+                    releases.add(ReleaseInfo(tag, name, publishedAt, isBeta, apkSize, apkUrl))
+                }
+                releases
+            } finally {
+                runCatching { conn.disconnect() }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     /**
      * Schedule (or re-affirm) the background update check at [intervalHours].
      * Pass 0 (or less) to disable background checks entirely - any previously

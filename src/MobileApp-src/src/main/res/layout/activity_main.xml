@@ -386,6 +386,14 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Tap 'Check for updates' to browse stable &amp; beta releases, switch channels, and install."
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:layout_marginTop="22dp"
                 android:drawableStart="@drawable/ic_shield"
                 android:drawablePadding="8dp"

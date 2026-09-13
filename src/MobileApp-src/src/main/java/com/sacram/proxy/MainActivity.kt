@@ -86,6 +86,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tilUpdateCheckInterval: com.google.android.material.textfield.TextInputLayout
     private lateinit var etUpdateCheckInterval: AutoCompleteTextView
     private lateinit var swAutoUpdate: SwitchMaterial
+    private lateinit var swBetaUpdates: SwitchMaterial
 
     private val saveHandler = Handler(Looper.getMainLooper())
     private val autosaveRunnable = Runnable { autosave() }
@@ -155,6 +156,10 @@ class MainActivity : AppCompatActivity() {
                 Log.e(TAG, "auto-update toggle failed", e)
             }
         }
+        swBetaUpdates = findViewById<com.google.android.material.switchmaterial.SwitchMaterial>(R.id.swBetaUpdates).also {
+            it.visibility = View.GONE
+            it.isChecked = config.updateChannel == "beta"
+        }
         etKeepaliveUrl.setText(config.keepaliveUrl)
         etKeepaliveInterval.setText((config.keepaliveIntervalMs / 1000).toString())
         chkRequireApprovalRestart.isChecked = config.requireApprovalRestart
@@ -217,7 +222,11 @@ class MainActivity : AppCompatActivity() {
 
         btnCheckUpdate = findViewById(R.id.btnCheckUpdate)
         tvUpdateStatus = findViewById(R.id.tvUpdateStatus)
-        tvUpdateStatus.text = "You're running ${BuildConfig.VERSION_NAME} - tap to check for updates."
+        tvUpdateStatus.text = if (config.updateChannel == "beta") {
+            "Beta channel - test builds only. You're running ${BuildConfig.VERSION_NAME}."
+        } else {
+            "Stable channel - normal releases only. You're running ${BuildConfig.VERSION_NAME}."
+        }
         btnCheckUpdate.setOnClickListener {
             runCatching {
                 val ready = AppState.updateAvailable.value
@@ -571,6 +580,7 @@ class MainActivity : AppCompatActivity() {
             }
             val band = BAND_VALUES.getOrElse(BAND_LABELS.indexOf(etBand.text.toString())) { "2.4" }
             val updateCheckIntervalHours = chosenUpdateIntervalHours()
+            val updateChannel = if (runCatching { swBetaUpdates.isChecked }.getOrDefault(false)) "beta" else "stable"
         if (pass.length !in 8..63) {
             tvSaved.setTextColor(0xFFC62828.toInt())
             tvSaved.text = "Password must be 8-63 characters - not saved yet"
@@ -614,7 +624,8 @@ class MainActivity : AppCompatActivity() {
                 disableBandSelector = chkDisableBandSelector.isChecked,
                 keepRetryingReform = chkKeepRetryingReform.isChecked,
                 autoRestartOnWifiReturn = chkAutoRestartOnWifiReturn.isChecked,
-                updateCheckIntervalHours = updateCheckIntervalHours
+                updateCheckIntervalHours = updateCheckIntervalHours,
+                updateChannel = updateChannel
             )
         )
         tvSaved.setTextColor(0xFF2E7D32.toInt())
@@ -738,32 +749,11 @@ class MainActivity : AppCompatActivity() {
         runCatching { tvUpdateStatus.text = "Checking for updates..." }
         lifecycleScope.launch {
             try {
-                val latest = withContext(Dispatchers.IO) { runCatching { UpdateChecker.fetchLatestTag() }.getOrNull() }
-                when {
-                    latest == null -> {
-                        tvUpdateStatus.text = "Couldn't reach the update server. Try again later."
-                    }
-                    runCatching { !UpdateChecker.isNewer(latest, BuildConfig.VERSION_NAME) }.getOrDefault(false) -> {
-                        tvUpdateStatus.text = "You're on the latest version (${BuildConfig.VERSION_NAME})."
-                        AppState.updateAvailable.value = null
-                    }
-                    else -> {
-                        tvUpdateStatus.text = "Update available: $latest - downloading..."
-                        val file = withContext(Dispatchers.IO) {
-                            runCatching {
-                                UpdateChecker.downloadApk(this@MainActivity, latest) { pct ->
-                                    runOnUiThread { runCatching { tvUpdateStatus.text = "Downloading $latest... $pct%" } }
-                                }
-                            }.getOrNull()
-                        }
-                        if (file == null) {
-                            tvUpdateStatus.text = "Download failed. Check your connection and try again."
-                        } else {
-                            AppState.updateAvailable.value = latest
-                            tvUpdateStatus.text = "Downloaded $latest - opening installer..."
-                            launchInstaller(file)
-                        }
-                    }
+                val releases = withContext(Dispatchers.IO) { runCatching { UpdateChecker.fetchAllReleases() }.getOrDefault(emptyList()) }
+                if (releases.isEmpty()) {
+                    tvUpdateStatus.text = "Couldn't reach the update server. Try again later."
+                } else {
+                    showReleasePicker(releases)
                 }
             } catch (e: Exception) {
                 runCatching { tvUpdateStatus.text = "Update check failed: ${e.message}" }
@@ -773,6 +763,212 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    private fun showReleasePicker(releases: List<UpdateChecker.ReleaseInfo>) {
+        val currentVersion = BuildConfig.VERSION_NAME
+        val channel = runCatching { ConfigManager.load(this).updateChannel }.getOrDefault("stable")
+
+        // --- root ---
+        val root = android.widget.ScrollView(this).apply {
+            setPadding(28.dp, 24.dp, 28.dp, 8.dp)
+            isVerticalScrollBarEnabled = false
+        }
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+
+        // --- header ---
+        container.addView(TextView(this).apply {
+            text = "Sacram Updates"
+            setTextColor(0xFFF5F2EE.toInt())
+            textSize = 18f; typeface = android.graphics.Typeface.DEFAULT_BOLD
+        })
+        container.addView(TextView(this).apply {
+            text = "Installed: $currentVersion"
+            setTextColor(0xFFB8A99F.toInt())
+            textSize = 12f; setPadding(0, 4.dp, 0, 0)
+        })
+
+        // --- channel selector ---
+        val channelRow = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            setPadding(0, 16.dp, 0, 4.dp)
+        }
+        val btnStable = android.widget.Button(this).apply {
+            text = "Stable"; textSize = 13f; typeface = android.graphics.Typeface.DEFAULT_BOLD
+            isAllCaps = false; setPadding(20.dp, 8.dp, 20.dp, 8.dp); minimumHeight = 0
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(if (channel == "stable") 0xFF4ADE80.toInt() else 0x1A4ADE80)
+                cornerRadius = 8.dp.toFloat()
+                setStroke(1.dp, if (channel == "stable") 0xFF4ADE80.toInt() else 0xFF332D29.toInt())
+            }
+            setTextColor(if (channel == "stable") 0xFF171412.toInt() else 0xFFB8A99F.toInt())
+        }
+        val btnBeta = android.widget.Button(this).apply {
+            text = "Beta"; textSize = 13f; typeface = android.graphics.Typeface.DEFAULT_BOLD
+            isAllCaps = false; setPadding(20.dp, 8.dp, 20.dp, 8.dp); minimumHeight = 0
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(if (channel == "beta") 0xFFFF8C00.toInt() else 0x1AFF8C00)
+                cornerRadius = 8.dp.toFloat()
+                setStroke(1.dp, if (channel == "beta") 0xFFFF8C00.toInt() else 0xFF332D29.toInt())
+            }
+            setTextColor(if (channel == "beta") 0xFF171412.toInt() else 0xFFB8A99F.toInt())
+        }
+        channelRow.addView(btnStable, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = 8.dp })
+        channelRow.addView(btnBeta, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        container.addView(channelRow)
+
+        // --- status line ---
+        val statusTv = TextView(this).apply {
+            text = "Background checks: $channel"
+            setTextColor(0xFFB8A99F.toInt()); textSize = 11f; setPadding(0, 2.dp, 0, 8.dp)
+        }
+        container.addView(statusTv)
+
+        // --- release sections ---
+        val stable = releases.filter { !it.isBeta }
+        val beta = releases.filter { it.isBeta }
+        val buttons = mutableListOf<android.widget.Button>()
+
+        fun addSection(label: String, color: Int, items: List<UpdateChecker.ReleaseInfo>) {
+            if (items.isEmpty()) return
+            container.addView(TextView(this).apply {
+                text = label; setTextColor(color); textSize = 12f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setPadding(0, 12.dp, 0, 6.dp)
+            })
+            for (r in items) {
+                val card = android.widget.LinearLayout(this).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    setPadding(14.dp, 12.dp, 14.dp, 12.dp)
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(0xFF201C1A.toInt()); cornerRadius = 10.dp.toFloat()
+                        setStroke(1.dp, 0xFF332D29.toInt())
+                    }
+                    val m = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+                    m.bottomMargin = 6.dp; layoutParams = m
+                }
+                // row 1: version + channel badge + size
+                val row1 = android.widget.LinearLayout(this).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL
+                }
+                row1.addView(TextView(this).apply {
+                    text = r.version; setTextColor(0xFFF5F2EE.toInt()); textSize = 15f
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                })
+                row1.addView(TextView(this).apply {
+                    text = if (r.isBeta) " beta" else " stable"
+                    setTextColor(if (r.isBeta) 0xFFFF8C00.toInt() else 0xFF4ADE80.toInt())
+                    textSize = 10f; setPadding(6.dp, 0, 0, 0)
+                })
+                row1.addView(View(this).apply { layoutParams = android.widget.LinearLayout.LayoutParams(0, 0, 1f) })
+                if (r.apkSize > 0) row1.addView(TextView(this).apply {
+                    text = r.sizeLabel; setTextColor(0xFFB8A99F.toInt()); textSize = 11f
+                })
+                card.addView(row1)
+                // row 2: date + badge for installed version
+                val row2 = android.widget.LinearLayout(this).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, 3.dp, 0, 0)
+                }
+                row2.addView(TextView(this).apply {
+                    text = r.dateLabel; setTextColor(0xFFB8A99F.toInt()); textSize = 11f
+                })
+                row2.addView(View(this).apply { layoutParams = android.widget.LinearLayout.LayoutParams(0, 0, 1f) })
+                card.addView(row2)
+
+                // installed badge
+                val isInstalled = r.version == currentVersion ||
+                    currentVersion.contains(r.version) && !currentVersion.contains("patch") && !currentVersion.contains("nightly")
+
+                // install button
+                val installBtn = android.widget.Button(this).apply {
+                    text = if (isInstalled) "Installed" else "Install"
+                    textSize = 12f; typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    isAllCaps = false; setPadding(16.dp, 6.dp, 16.dp, 6.dp); minimumHeight = 0
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(if (isInstalled) 0xFF2A2520.toInt() else 0xFF4ADE80)
+                        cornerRadius = 8.dp.toFloat()
+                    }
+                    setTextColor(if (isInstalled) 0xFFB8A99F.toInt() else 0xFF171412.toInt())
+                    isEnabled = !isInstalled
+                    val btnLP = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+                    btnLP.topMargin = 8.dp; btnLP.gravity = android.view.Gravity.END; layoutParams = btnLP
+                }
+                buttons.add(installBtn)
+
+                if (!isInstalled) {
+                    installBtn.setOnClickListener {
+                        for (b in buttons) b.isEnabled = false
+                        installBtn.text = "Downloading..."
+                        lifecycleScope.launch {
+                            try {
+                                val file = withContext(Dispatchers.IO) {
+                                    UpdateChecker.downloadApk(this@MainActivity, r.tag) { pct ->
+                                        runOnUiThread { runCatching { installBtn.text = "Downloading $pct%" } }
+                                    }
+                                }
+                                if (file != null) {
+                                    AppState.updateAvailable.value = r.tag
+                                    runCatching { Toast.makeText(this@MainActivity, "Downloaded ${r.version} - opening installer", Toast.LENGTH_SHORT).show() }
+                                    launchInstaller(file)
+                                } else {
+                                    runCatching { Toast.makeText(this@MainActivity, "Download failed - check connection", Toast.LENGTH_SHORT).show() }
+                                }
+                            } catch (_: Exception) {
+                                runCatching { Toast.makeText(this@MainActivity, "Download failed", Toast.LENGTH_SHORT).show() }
+                            } finally {
+                                for (b in buttons) b.isEnabled = true
+                                installBtn.text = "Install"
+                            }
+                        }
+                    }
+                }
+                card.addView(installBtn)
+                container.addView(card)
+            }
+        }
+
+        addSection("STABLE", 0xFF4ADE80.toInt(), stable)
+        addSection("BETA", 0xFFFF8C00.toInt(), beta)
+
+        root.addView(container)
+
+        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setView(root)
+            .setNegativeButton("Close", null)
+            .create()
+        dialog.show()
+
+        btnStable.setOnClickListener {
+            runCatching {
+                ConfigManager.save(this, ConfigManager.load(this).copy(updateChannel = "stable"))
+                btnStable.background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xFF4ADE80.toInt()); cornerRadius = 8.dp.toFloat(); setStroke(1.dp, 0xFF4ADE80.toInt())
+                }; btnStable.setTextColor(0xFF171412.toInt())
+                btnBeta.background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0x1AFF8C00); cornerRadius = 8.dp.toFloat(); setStroke(1.dp, 0xFF332D29.toInt())
+                }; btnBeta.setTextColor(0xFFB8A99F.toInt())
+                statusTv.text = "Background checks: stable"
+                swBetaUpdates.isChecked = false
+            }
+        }
+        btnBeta.setOnClickListener {
+            runCatching {
+                ConfigManager.save(this, ConfigManager.load(this).copy(updateChannel = "beta"))
+                btnBeta.background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xFFFF8C00.toInt()); cornerRadius = 8.dp.toFloat(); setStroke(1.dp, 0xFFFF8C00.toInt())
+                }; btnBeta.setTextColor(0xFF171412.toInt())
+                btnStable.background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0x1A4ADE80); cornerRadius = 8.dp.toFloat(); setStroke(1.dp, 0xFF332D29.toInt())
+                }; btnStable.setTextColor(0xFFB8A99F.toInt())
+                statusTv.text = "Background checks: beta"
+                swBetaUpdates.isChecked = true
+            }
+        }
+    }
+
+    private val Int.dp: Int get() = (this * resources.displayMetrics.density + 0.5f).toInt()
 
     private fun launchInstaller(apk: File) {
         try {
