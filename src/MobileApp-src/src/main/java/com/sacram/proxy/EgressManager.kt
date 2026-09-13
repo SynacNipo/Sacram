@@ -87,8 +87,13 @@ object EgressManager {
             if (NetworkUtils.isValidEgress(cm, active)) return active
         }
         synchronized(lock) {
+            // Prefer a VALIDATED network (actually reaches the internet) over
+            // one that merely claims INTERNET. The old code returned the
+            // active network on INTERNET alone, which is often the WiFi
+            // Direct group network without upstream - then every site failed
+            // until the slow fallback path kicked in.
             val active = runCatching { cm.activeNetwork }.getOrNull()
-            if (NetworkUtils.isValidEgress(cm, active)) {
+            if (NetworkUtils.isValidatedEgress(cm, active)) {
                 if (cachedNet != active) {
                     cachedNet = active
                     cachedNetTime = now
@@ -97,11 +102,12 @@ object EgressManager {
             }
             val cached = cachedNet
             if (cached != null && now - cachedNetTime < CACHE_MS &&
-                NetworkUtils.isValidEgress(cm, cached)
+                NetworkUtils.isValidatedEgress(cm, cached)
             ) {
                 return cached
             }
             val n = NetworkUtils.pickCellular(cm, null) ?: cached
+                ?: if (NetworkUtils.isValidEgress(cm, active)) active else null
             cachedNet = n
             cachedNetTime = now
             return n
@@ -111,6 +117,14 @@ object EgressManager {
     fun resolve(host: String, net: Network?): List<InetAddress> {
         val now = System.currentTimeMillis()
         dnsCache[host]?.let { if (it.second > now) return it.first }
+        // IP literals never touch DNS - avoids a 5s stall per lookup.
+        runCatching { InetAddress.getByName(host) }.getOrNull()?.let { literal ->
+            if (literal.hostAddress == host || host.contains(':')) {
+                val single = listOf(literal)
+                dnsCache[host] = single to (now + DNS_TTL_MS)
+                return single
+            }
+        }
         val future = dnsExecutor.submit<List<InetAddress>> {
             (if (net != null) net.getAllByName(host) else InetAddress.getAllByName(host))
                 ?.toList().orEmpty()

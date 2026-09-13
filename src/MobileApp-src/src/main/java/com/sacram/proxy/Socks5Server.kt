@@ -265,7 +265,7 @@ class Socks5Server(
                     val sock = Socket()
                     try {
                         net?.bindSocket(sock)
-                        sock.connect(InetSocketAddress(a, targetPort), 8000)
+                        sock.connect(InetSocketAddress(a, targetPort), 10000)
                         sock.tcpNoDelay = true
                         sock.soTimeout = tunnelIdleTimeoutMs
                         tuneSocket(sock)
@@ -284,7 +284,7 @@ class Socks5Server(
                             val sock = Socket()
                             try {
                                 fresh.bindSocket(sock)
-                                sock.connect(InetSocketAddress(a, targetPort), 8000)
+                                sock.connect(InetSocketAddress(a, targetPort), 10000)
                                 sock.tcpNoDelay = true
                                 sock.soTimeout = tunnelIdleTimeoutMs
                                 tuneSocket(sock)
@@ -302,7 +302,7 @@ class Socks5Server(
                     for (a in defAddrs) {
                         val sock = Socket()
                         try {
-                            sock.connect(InetSocketAddress(a, targetPort), 8000)
+                            sock.connect(InetSocketAddress(a, targetPort), 10000)
                             sock.tcpNoDelay = true
                             sock.soTimeout = tunnelIdleTimeoutMs
                             tuneSocket(sock)
@@ -321,19 +321,39 @@ class Socks5Server(
                 onLog("TCP $target:$targetPort")
                 val tx = AtomicLong(0L)
                 val rx = AtomicLong(0L)
+                // Either direction finishing tears down the other side.
+                // Previously jobIn.join()+jobOut.join() waited for BOTH, so a
+                // half-close (very common with HTTP/TLS) left the sibling
+                // blocked until socket timeout - hung tunnels that piled up
+                // and made sites hang or never load.
                 val jobIn = scope.launch {
                     try { tx.set(pump(input, up.getOutputStream()) { n ->
                         TrafficStats.addTx(n.toLong())
                         ClientUsage.add(clientIp, n.toLong())
-                    }) } finally { runCatching { up.shutdownOutput() } }
+                    }) } finally {
+                        runCatching { up.shutdownInput() }
+                        runCatching { client.shutdownInput() }
+                    }
                 }
                 val jobOut = scope.launch {
                     try { rx.set(pump(up.getInputStream(), output) { n ->
                         TrafficStats.addRx(n.toLong())
                         ClientUsage.add(clientIp, n.toLong())
-                    }) } finally { runCatching { client.shutdownOutput() } }
+                    }) } finally {
+                        runCatching { up.shutdownOutput() }
+                        runCatching { client.shutdownOutput() }
+                    }
                 }
-                jobIn.join(); jobOut.join()
+                try {
+                    jobIn.join()
+                } finally {
+                    jobOut.cancel()
+                    runCatching { up.close() }
+                }
+                try {
+                    jobOut.join()
+                } catch (_: Exception) {
+                }
                 reportTunnel(target, targetPort, System.currentTimeMillis() - t0, tx.get(), rx.get())
             } catch (e: Exception) {
                 EgressManager.reportFailure(target)
@@ -392,10 +412,15 @@ class Socks5Server(
                     dstHost = String(data, idx, len)
                     idx += len
                 }
-                0x04 -> return // IPv6 targets unsupported
+                0x04 -> {
+                    if (data.size < idx + 16 + 2) return
+                    dstHost = InetAddress.getByAddress(data.copyOfRange(idx, idx + 16)).hostAddress
+                    idx += 16
+                }
                 else -> return
             }
             val dstPort = ((data[idx].toInt() and 0xff) shl 8) or (data[idx + 1].toInt() and 0xff)
+            if (dstPort <= 0 || dstPort > 65535) return
             val payload = data.copyOfRange(idx + 2, data.size)
 
             val clientKey = "${clientAddr.hostAddress}:${clientPort}"
@@ -437,7 +462,13 @@ class Socks5Server(
             }
             session.lastActivity = System.currentTimeMillis()
             try {
-                val dstAddr = resolve(dstHost, net).first()
+                // IP literals skip DNS entirely; hostnames resolve via cache.
+                val dstAddr = try {
+                    InetAddress.getByName(dstHost)
+                    resolve(dstHost, net).firstOrNull() ?: InetAddress.getByName(dstHost)
+                } catch (_: Exception) {
+                    runCatching { InetAddress.getByName(dstHost) }.getOrNull() ?: return
+                }
                 try {
                     session.socket.send(DatagramPacket(payload, payload.size, dstAddr, dstPort))
                     session.tx.addAndGet(payload.size.toLong())
@@ -486,9 +517,8 @@ class Socks5Server(
     ) {
         try {
             val buf = ByteArray(65535)
-            val header = ByteArray(10)
-            header[3] = 0x01 // IPv4
-            val response = ByteArray(65535 + 10)
+            // Max header is IPv6: RSV(2)+FRAG(1)+ATYP(1)+16+2 = 22 bytes.
+            val response = ByteArray(65535 + 22)
             while (running.get()) {
                 val pkt = DatagramPacket(buf, buf.size)
                 try {
@@ -505,14 +535,25 @@ class Socks5Server(
                 val dataLen = pkt.length
                 session.rx.addAndGet(dataLen.toLong())
                 val ipBytes = src.address
-                if (ipBytes.size != 4) continue
-                System.arraycopy(ipBytes, 0, header, 4, 4)
-                header[8] = ((srcPort shr 8) and 0xff).toByte()
-                header[9] = (srcPort and 0xff).toByte()
-                val total = 10 + dataLen
+                val headerLen: Int
+                if (ipBytes.size == 4) {
+                    response[0] = 0; response[1] = 0; response[2] = 0; response[3] = 0x01
+                    System.arraycopy(ipBytes, 0, response, 4, 4)
+                    response[8] = ((srcPort shr 8) and 0xff).toByte()
+                    response[9] = (srcPort and 0xff).toByte()
+                    headerLen = 10
+                } else if (ipBytes.size == 16) {
+                    response[0] = 0; response[1] = 0; response[2] = 0; response[3] = 0x04
+                    System.arraycopy(ipBytes, 0, response, 4, 16)
+                    response[20] = ((srcPort shr 8) and 0xff).toByte()
+                    response[21] = (srcPort and 0xff).toByte()
+                    headerLen = 22
+                } else {
+                    continue
+                }
+                val total = headerLen + dataLen
                 if (total > response.size) continue
-                System.arraycopy(header, 0, response, 0, 10)
-                System.arraycopy(buf, 0, response, 10, dataLen)
+                System.arraycopy(buf, 0, response, headerLen, dataLen)
                 relaySocket.send(DatagramPacket(response, total, clientAddr, clientPort))
                 TrafficStats.addRx(total.toLong())
                 ClientUsage.add(clientAddr.hostAddress ?: "", total.toLong())

@@ -221,7 +221,7 @@ class Socks4Server(
                     val sock = Socket()
                     try {
                         net?.bindSocket(sock)
-                        sock.connect(InetSocketAddress(a, targetPort), 8000)
+                        sock.connect(InetSocketAddress(a, targetPort), 10000)
                         sock.tcpNoDelay = true
                         sock.soTimeout = tunnelIdleTimeoutMs
                         tuneSocket(sock)
@@ -240,7 +240,7 @@ class Socks4Server(
                             val sock = Socket()
                             try {
                                 fresh.bindSocket(sock)
-                                sock.connect(InetSocketAddress(a, targetPort), 8000)
+                                sock.connect(InetSocketAddress(a, targetPort), 10000)
                                 sock.tcpNoDelay = true
                                 sock.soTimeout = tunnelIdleTimeoutMs
                                 tuneSocket(sock)
@@ -258,7 +258,7 @@ class Socks4Server(
                     for (a in defAddrs) {
                         val sock = Socket()
                         try {
-                            sock.connect(InetSocketAddress(a, targetPort), 8000)
+                            sock.connect(InetSocketAddress(a, targetPort), 10000)
                             sock.tcpNoDelay = true
                             sock.soTimeout = tunnelIdleTimeoutMs
                             tuneSocket(sock)
@@ -281,15 +281,30 @@ class Socks4Server(
                     try { tx.set(pump(input, up.getOutputStream()) { n ->
                         TrafficStats.addTx(n.toLong())
                         ClientUsage.add(clientIp, n.toLong())
-                    }) } finally { runCatching { up.shutdownOutput() } }
+                    }) } finally {
+                        runCatching { up.shutdownInput() }
+                        runCatching { client.shutdownInput() }
+                    }
                 }
                 val jobOut = scope.launch {
                     try { rx.set(pump(up.getInputStream(), output) { n ->
                         TrafficStats.addRx(n.toLong())
                         ClientUsage.add(clientIp, n.toLong())
-                    }) } finally { runCatching { client.shutdownOutput() } }
+                    }) } finally {
+                        runCatching { up.shutdownOutput() }
+                        runCatching { client.shutdownOutput() }
+                    }
                 }
-                jobIn.join(); jobOut.join()
+                try {
+                    jobIn.join()
+                } finally {
+                    jobOut.cancel()
+                    runCatching { up.close() }
+                }
+                try {
+                    jobOut.join()
+                } catch (_: Exception) {
+                }
                 reportTunnel(target, targetPort, System.currentTimeMillis() - t0, tx.get(), rx.get())
             } catch (e: Exception) {
                 EgressManager.reportFailure(target)
