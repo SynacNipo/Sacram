@@ -43,9 +43,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Base on current stable (non-nightly, non-patch) so the patch
+          # Base on current stable (non-patch) so the patch
           # pre-release is traceable to what it was forked from.
-          latest=$(gh release list --json tagName -q '.[].tagName' | grep -v nightly | grep -v networkingpatch | sort -V | tail -1)
+          latest=$(gh release list --json tagName -q '.[].tagName' | grep -v networkingpatch | sort -V | tail -1)
           if [ -z "$latest" ]; then
             latest="v0.0"
           fi
