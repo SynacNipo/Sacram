@@ -7,6 +7,7 @@
 ![Latest release](https://img.shields.io/github/v/release/SynacNipo/Sacram)
 ![CI build](https://img.shields.io/github/actions/workflow/status/SynacNipo/Sacram/build.yml?label=CI%20build)
 ![License](https://img.shields.io/github/license/SynacNipo/Sacram)
+![Downloads](https://img.shields.io/github/downloads/SynacNipo/Sacram/total)
 
 > [!NOTE]
 > **STABLE** for its core use case: a systemwide TCP+UDP proxy over a WiFi
