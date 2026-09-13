@@ -10,13 +10,11 @@
 ![Downloads](https://img.shields.io/github/downloads/SynacNipo/Sacram/total)
 
 > [!NOTE]
-> **STABLE** for its core use case: a systemwide TCP+UDP proxy over a WiFi
-> Direct hotspot. Validated end-to-end with Proxifier — verify on your setup
-> before relying on it for anything critical.
+> **Stable** for its core use case: a systemwide TCP+UDP proxy over a WiFi
+> Direct. — verify on your setup before relying on it for anything critical.
 
-Android app (Kotlin) that turns a spare Android phone into a **WiFi Direct
-hotspot + proxy** so a PC can reach the internet through the phone's data
-connection — UDP included.
+An Android Application that hosts **WiFi Direct + proxy** so a PC can reach the internet through the phone's data
+connection via Windows HTTP Proxy settings or proxifier
 
 1. Starts a **WiFi Direct** access point with a custom SSID + password
 2. Runs **Auto mode** — **SOCKS5** (`1080`, TCP + UDP ASSOCIATE) and **HTTP**
@@ -38,7 +36,7 @@ Full setup guide, config reference and keep-alive details live in the
 - **UDP is best-effort:** needs a client with real UDP ASSOCIATE support;
   no fragmentation, no IPv6 targets, some carriers throttle UDP. WebRTC apps
   (e.g. Discord voice) bypass SOCKS5 for UDP entirely — nothing arrives to
-  relay. Fall back to TCP when UDP misbehaves.
+  relay.
 - **SOCKS4 needs 4a:** enable remote hostname resolving (SOCKS4a) in the
   client or hostnames won't resolve. Details on the
   [wiki](https://github.com/SynacNipo/Sacram/wiki/PC-Client#socks4--socks4a-legacy-clients).
