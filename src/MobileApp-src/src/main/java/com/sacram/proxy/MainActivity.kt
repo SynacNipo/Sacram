@@ -86,7 +86,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tilUpdateCheckInterval: com.google.android.material.textfield.TextInputLayout
     private lateinit var etUpdateCheckInterval: AutoCompleteTextView
     private lateinit var swAutoUpdate: SwitchMaterial
-    private lateinit var swBetaUpdates: SwitchMaterial
 
     private val saveHandler = Handler(Looper.getMainLooper())
     private val autosaveRunnable = Runnable { autosave() }
@@ -156,10 +155,7 @@ class MainActivity : AppCompatActivity() {
                 Log.e(TAG, "auto-update toggle failed", e)
             }
         }
-        swBetaUpdates = findViewById<com.google.android.material.switchmaterial.SwitchMaterial>(R.id.swBetaUpdates).also {
-            it.visibility = View.GONE
-            it.isChecked = config.updateChannel == "beta"
-        }
+
         etKeepaliveUrl.setText(config.keepaliveUrl)
         etKeepaliveInterval.setText((config.keepaliveIntervalMs / 1000).toString())
         chkRequireApprovalRestart.isChecked = config.requireApprovalRestart
@@ -580,7 +576,7 @@ class MainActivity : AppCompatActivity() {
             }
             val band = BAND_VALUES.getOrElse(BAND_LABELS.indexOf(etBand.text.toString())) { "2.4" }
             val updateCheckIntervalHours = chosenUpdateIntervalHours()
-            val updateChannel = if (runCatching { swBetaUpdates.isChecked }.getOrDefault(false)) "beta" else "stable"
+            val updateChannel = runCatching { ConfigManager.load(this@MainActivity).updateChannel }.getOrDefault("stable")
         if (pass.length !in 8..63) {
             tvSaved.setTextColor(0xFFC62828.toInt())
             tvSaved.text = "Password must be 8-63 characters - not saved yet"
@@ -887,7 +883,7 @@ class MainActivity : AppCompatActivity() {
                     textSize = 12f; typeface = android.graphics.Typeface.DEFAULT_BOLD
                     isAllCaps = false; setPadding(16.dp, 6.dp, 16.dp, 6.dp); minimumHeight = 0
                     background = android.graphics.drawable.GradientDrawable().apply {
-                        setColor(if (isInstalled) 0xFF2A2520.toInt() else 0xFF4ADE80)
+                        setColor(if (isInstalled) 0xFF2A2520.toInt() else 0xFF4ADE80.toInt())
                         cornerRadius = 8.dp.toFloat()
                     }
                     setTextColor(if (isInstalled) 0xFFB8A99F.toInt() else 0xFF171412.toInt())
@@ -950,7 +946,6 @@ class MainActivity : AppCompatActivity() {
                     setColor(0x1AFF8C00); cornerRadius = 8.dp.toFloat(); setStroke(1.dp, 0xFF332D29.toInt())
                 }; btnBeta.setTextColor(0xFFB8A99F.toInt())
                 statusTv.text = "Background checks: stable"
-                swBetaUpdates.isChecked = false
             }
         }
         btnBeta.setOnClickListener {
@@ -963,7 +958,6 @@ class MainActivity : AppCompatActivity() {
                     setColor(0x1A4ADE80); cornerRadius = 8.dp.toFloat(); setStroke(1.dp, 0xFF332D29.toInt())
                 }; btnStable.setTextColor(0xFFB8A99F.toInt())
                 statusTv.text = "Background checks: beta"
-                swBetaUpdates.isChecked = true
             }
         }
     }
