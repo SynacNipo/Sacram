@@ -68,7 +68,7 @@ class HttpProxyServer(
     private val STALE_TIMEOUT_MS = 2 * 60_000L
     private val poolMax = 48
     private val poolIdleMs = 60_000L
-    private val connectTimeoutMs = 6_000
+    private val connectTimeoutMs = 10_000
     private val readTimeoutMs = 20_000
     private val socketRcvBuf = 512 * 1024
     private val socketSndBuf = 512 * 1024
@@ -194,10 +194,11 @@ class HttpProxyServer(
             while (running.get()) {
                 val requestLine = readLine(reader) ?: break
                 if (requestLine.isEmpty()) continue
-                val parts = requestLine.split(" ")
+                val parts = requestLine.trim().split(Regex("\\s+"), limit = 3)
                 if (parts.size < 3) break
                 val method = parts[0].uppercase(Locale.US)
                 val target = parts[1]
+                val version = parts[2].uppercase(Locale.US)
                 val headers = readHeaders(reader) ?: break
 
                 if (method == "CONNECT") {
@@ -206,7 +207,7 @@ class HttpProxyServer(
                 }
 
                 if (isSelfHostRequest(method, target, headers)) {
-                    val keepAlive = headers.any { it.startsWith("Connection:", true) && it.contains("keep-alive", true) }
+                    val keepAlive = clientWantsKeepAlive(version, headers)
                     val (_, _, selfPath) = parseAbsoluteUri(target, headers)
                     forwardPlain(reader, output, method, goIp, panelPort, selfPath.ifEmpty { "/" }, headers, keepAlive, local = true, clientIp = clientIp)
                     if (!keepAlive) break
@@ -218,7 +219,7 @@ class HttpProxyServer(
                     writeSimpleResponse(output, 400, "Bad Request - absolute URI required")
                     break
                 }
-                val keepAlive = headers.any { it.startsWith("Connection:", true) && it.contains("keep-alive", true) }
+                val keepAlive = clientWantsKeepAlive(version, headers)
                 forwardPlain(reader, output, method, host, port, path, headers, keepAlive, clientIp = clientIp)
                 if (!keepAlive) break
             }
@@ -226,6 +227,19 @@ class HttpProxyServer(
         } finally {
             runCatching { client.close() }
         }
+    }
+
+    private fun clientWantsKeepAlive(version: String, headers: List<String>): Boolean {
+        val conn = headers.filter { it.startsWith("Connection:", true) }
+            .joinToString(",") { it.substringAfter(':') }.lowercase(Locale.US)
+        // Also honor Proxy-Connection sent by old clients.
+        val proxyConn = headers.filter { it.startsWith("Proxy-Connection:", true) }
+            .joinToString(",") { it.substringAfter(':') }.lowercase(Locale.US)
+        val combined = "$conn,$proxyConn"
+        if (combined.contains("close")) return false
+        if (combined.contains("keep-alive")) return true
+        // HTTP/1.1 defaults to keep-alive, HTTP/1.0 defaults to close.
+        return !version.contains("1.0")
     }
 
     private suspend fun forwardPlain(
@@ -240,8 +254,8 @@ class HttpProxyServer(
         local: Boolean = false,
         clientIp: String = ""
     ) {
-        val canRetry = method == "GET" || method == "HEAD" ||
-            method == "OPTIONS" || method == "TRACE"
+        // Retry once with a fresh upstream if nothing was committed to the
+        // client yet. Safe for any method because no response bytes went out.
         var committed = false
         for (attempt in 0..1) {
             var upstream: Socket? = null
@@ -252,14 +266,20 @@ class HttpProxyServer(
 
                 val sb = StringBuilder()
                 sb.append("$method $path HTTP/1.1\r\n")
+                var hasExpect = false
                 for (h in headers) {
                     if (h.startsWith("Proxy-", true)) continue
                     if (h.startsWith("Connection:", true)) continue
                     if (h.startsWith("Host:", true)) continue
                     if (h.startsWith("Proxy-Connection:", true)) continue
+                    if (h.startsWith("Keep-Alive:", true)) continue
                     sb.append(h).append("\r\n")
+                    if (h.startsWith("Expect:", true)) hasExpect = true
                 }
-                sb.append("Host: $host:$port\r\n")
+                // Omit default ports so strict vhosts don't 404.
+                val defaultPort = 80
+                val hostHdr = if (port == defaultPort) host else "$host:$port"
+                sb.append("Host: $hostHdr\r\n")
                 sb.append("Connection: keep-alive\r\n\r\n")
                 upOut.write(sb.toString().toByteArray())
                 upOut.flush()
@@ -269,42 +289,48 @@ class HttpProxyServer(
                     ClientUsage.add(clientIp, hlen)
                 }
 
+                // Forward a request body for ANY method that frames one
+                // (POST/PUT/PATCH/DELETE/etc). Previously only POST/PUT/PATCH
+                // were forwarded, so DELETE-with-body, PROPFIND, QUERY, etc.
+                // silently lost their bodies and those sites/APIs broke.
+                // 100-continue: just forward Expect + body; upstream answers.
                 val contentLength = headers.firstOrNull { it.startsWith("Content-Length:", true) }
-                    ?.substringAfter(':')?.trim()?.toIntOrNull()
-                if (method == "POST" || method == "PUT" || method == "PATCH") {
-                    if (contentLength != null) {
-                        if (contentLength > 8 * 1024 * 1024 || contentLength < 0) {
-                            writeSimpleResponse(output, 413, "Payload Too Large")
-                            return
-                        }
-                        val body = ByteArray(contentLength)
-                        var read = 0
-                        while (read < contentLength) {
-                            val n = input.read(body, read, contentLength - read)
-                            if (n <= 0) break
-                            read += n
-                        }
-                        upOut.write(body, 0, read)
-                        upOut.flush()
+                    ?.substringAfter(':')?.trim()?.toLongOrNull()
+                val reqChunked = headers.any {
+                    it.startsWith("Transfer-Encoding:", true) && it.contains("chunked", true)
+                }
+                if (contentLength != null) {
+                    if (contentLength < 0) {
+                        writeSimpleResponse(output, 400, "Bad Request - bad Content-Length")
+                        runCatching { upstream.close() }
+                        return
+                    }
+                    // Stream bodies of any size instead of capping at 8MB
+                    // (large uploads / photos / videos used to get 413).
+                    pumpFixed(input, upOut, contentLength) { n ->
                         if (!local) {
-                            TrafficStats.addTx(read.toLong())
-                            ClientUsage.add(clientIp, read.toLong())
-                        }
-                    } else {
-                        pumpChunked(input, upOut) { n ->
-                            if (!local) {
-                                TrafficStats.addTx(n.toLong())
-                                ClientUsage.add(clientIp, n.toLong())
-                            }
+                            TrafficStats.addTx(n.toLong())
+                            ClientUsage.add(clientIp, n.toLong())
                         }
                     }
+                    upOut.flush()
+                } else if (reqChunked) {
+                    pumpChunked(input, upOut) { n ->
+                        if (!local) {
+                            TrafficStats.addTx(n.toLong())
+                            ClientUsage.add(clientIp, n.toLong())
+                        }
+                    }
+                    upOut.flush()
+                } else if (hasExpect) {
+                    // Expect: 100-continue with no framing yet - nothing to forward.
                 }
                 onLog("HTTP $method $host:$port$path")
 
                 val upIn = StreamReader(upstream.getInputStream())
                 val statusLine = readLine(upIn) ?: throw IOException("no response from upstream")
                 val respHeaders = readHeaders(upIn) ?: throw IOException("no response headers")
-                val statusCode = statusLine.split(" ")[1]
+                val statusCode = statusLine.trim().split(Regex("\\s+")).getOrNull(1) ?: ""
                 if (!local) reportRequest(host, port, method, statusCode, System.currentTimeMillis() - t0)
 
                 val chunked = respHeaders.any {
@@ -315,14 +341,21 @@ class HttpProxyServer(
                 val upstreamClose = respHeaders.any {
                     it.startsWith("Connection:", true) && it.contains("close", true)
                 }
-                val upstreamKeepAlive = !upstreamClose && (chunked || respLength != null)
-                val closeDelimited = !chunked && respLength == null
+                // 1xx / 204 / 304 and HEAD responses never carry a body, even
+                // if a (bogus) Content-Length is present. Reading a body here
+                // used to hang those sites until timeout.
+                val statusInt = statusCode.toIntOrNull() ?: 0
+                val noBody = method == "HEAD" || statusInt == 204 || statusInt == 304 ||
+                    (statusInt in 100..199)
+                val upstreamKeepAlive = !upstreamClose && (noBody || chunked || respLength != null)
+                val closeDelimited = !noBody && !chunked && respLength == null
                 val clientKa = clientKeepAlive && !closeDelimited
 
-                writeResponseHeaders(output, statusLine, respHeaders, clientKa)
+                writeResponseHeaders(output, statusLine, respHeaders, clientKa, noBody)
                 committed = true
 
                 when {
+                    noBody -> { /* headers only */ }
                     chunked -> forwardChunkedResponse(upIn, output) { n ->
                         if (!local) {
                             TrafficStats.addRx(n.toLong())
@@ -352,7 +385,10 @@ class HttpProxyServer(
                 return
             } catch (e: Exception) {
                 runCatching { upstream?.close() }
-                if (attempt == 0 && canRetry && !committed) continue
+                // Retry once with a fresh socket whenever the client hasn't
+                // seen any response bytes yet (covers stale pooled sockets
+                // for POST/etc. too - previously only GET-like methods).
+                if (attempt == 0 && !committed) continue
                 onLog("HTTP fail $host:$port: ${e.message}")
                 if (!local) reportRequest(host, port, method, "fail", System.currentTimeMillis() - t0)
                 if (!committed) writeSimpleResponse(output, 502, "Bad Gateway - ${e.message}")
@@ -445,13 +481,15 @@ class HttpProxyServer(
             if (pool != null) {
                 synchronized(pool) {
                     val now = System.currentTimeMillis()
-                    pool.removeAll { it.second + poolIdleMs < now || it.first.isClosed }
+                    pool.removeAll { isPoolSocketDead(it.first) || it.second + poolIdleMs < now }
                     val entry = pool.removeLastOrNull()
                     if (entry != null) reused = entry.first
                 }
             }
-            if (reused != null && !reused.isClosed && reused.isConnected) {
+            if (reused != null && !isPoolSocketDead(reused)) {
                 return reused
+            } else if (reused != null) {
+                runCatching { reused.close() }
             }
         }
         val net = pickNet(host)
@@ -478,8 +516,17 @@ class HttpProxyServer(
         return up
     }
 
+    private fun isPoolSocketDead(sock: Socket?): Boolean {
+        if (sock == null) return true
+        return sock.isClosed || !sock.isConnected ||
+            sock.isInputShutdown || sock.isOutputShutdown
+    }
+
     private fun releaseUpstream(host: String, port: Int, sock: Socket) {
-        if (sock.isClosed) return
+        if (isPoolSocketDead(sock)) {
+            runCatching { sock.close() }
+            return
+        }
         val key = "$host:$port"
         val pool = connPool.getOrPut(key) { mutableListOf() }
         synchronized(pool) {
@@ -512,15 +559,30 @@ class HttpProxyServer(
         output: OutputStream,
         statusLine: String,
         respHeaders: List<String>,
-        keepAlive: Boolean
+        keepAlive: Boolean,
+        noBody: Boolean = false
     ) {
         val sb = StringBuilder()
-        sb.append(statusLine).append("\r\n")
+        sb.append(statusLine.trim()).append("\r\n")
+        // If chunked framing is present, Content-Length must be dropped
+        // (RFC 9112 6.3) - some origins send both and clients then hang.
+        val hasChunked = respHeaders.any {
+            it.startsWith("Transfer-Encoding:", true) && it.contains("chunked", true)
+        }
         for (h in respHeaders) {
             if (h.startsWith("Proxy-", true)) continue
             if (h.startsWith("Connection:", true)) continue
             if (h.startsWith("Proxy-Connection:", true)) continue
+            if (h.startsWith("Keep-Alive:", true)) continue
+            if (hasChunked && h.startsWith("Content-Length:", true)) continue
             sb.append(h).append("\r\n")
+        }
+        // For bodyless responses force the length to zero semantics: clients
+        // must not wait for a body.
+        if (noBody && !hasChunked &&
+            respHeaders.none { it.startsWith("Content-Length:", true) }
+        ) {
+            sb.append("Content-Length: 0\r\n")
         }
         sb.append("Connection: ").append(if (keepAlive) "keep-alive" else "close").append("\r\n\r\n")
         output.write(sb.toString().toByteArray(Charsets.ISO_8859_1))
@@ -528,12 +590,15 @@ class HttpProxyServer(
     }
 
     private fun forwardChunkedResponse(input: StreamReader, output: OutputStream, onBytes: ((Int) -> Unit)? = null) {
+        // Stream chunk bodies instead of allocating ByteArray(size): large
+        // video / download chunks (>8MB) used to abort the response here.
+        val buf = ByteArray(131072)
         while (running.get()) {
             val sizeLine = readLine(input) ?: return
             output.write(sizeLine.toByteArray(Charsets.ISO_8859_1))
             output.write(CRLF)
             val size = sizeLine.split(";")[0].trim().toIntOrNull(16) ?: return
-            if (size < 0 || size > 8 * 1024 * 1024) return
+            if (size < 0) return
             if (size == 0) {
                 while (true) {
                     val trailer = readLine(input) ?: return
@@ -541,19 +606,19 @@ class HttpProxyServer(
                     output.write(CRLF)
                     if (trailer.isEmpty()) break
                 }
+                output.flush()
                 return
             }
-            val body = ByteArray(size)
-            var read = 0
-            while (read < size) {
-                val n = input.read(body, read, size - read)
+            var remaining = size
+            while (remaining > 0) {
+                val n = input.read(buf, 0, minOf(buf.size, remaining))
                 if (n <= 0) return
-                read += n
+                output.write(buf, 0, n)
+                remaining -= n
+                onBytes?.invoke(n)
             }
-            output.write(body, 0, size)
             output.write(CRLF)
             output.flush()
-            onBytes?.invoke(size)
             readLine(input)
         }
     }
@@ -583,9 +648,7 @@ class HttpProxyServer(
     ) {
         var upstream: Socket? = null
         val t0 = System.currentTimeMillis()
-        val hostPort = target.split(":")
-        val host = hostPort[0]
-        val port = hostPort.getOrNull(1)?.toIntOrNull() ?: 443
+        val (host, port) = parseConnectTarget(target)
         tunnelCount.incrementAndGet()
         AppState.tcpTunnels.value = tunnelCount.get()
         try {
@@ -601,7 +664,7 @@ class HttpProxyServer(
             up.tcpNoDelay = true
             up.soTimeout = tunnelIdleTimeoutMs
             upstream = up
-            output.write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray())
+            output.write("HTTP/1.1 200 Connection established\r\nProxy-Agent: Sacram\r\n\r\n".toByteArray())
             output.flush()
             onLog("CONNECT $host:$port")
             reportRequest(host, port, "CONNECT", "200", System.currentTimeMillis() - t0)
@@ -610,23 +673,45 @@ class HttpProxyServer(
             val upBytes = AtomicLong(0L)
             val dnBytes = AtomicLong(0L)
             coroutineScope {
+                // Either direction finishing must tear down the other side.
+                // Previously both pumps just awaited each other, so a client
+                // half-close left the sibling blocked until socket timeout
+                // (hung tunnels, thread pile-up, sites that never finish).
                 val toServer = async {
-                    pump(input, BufferedOutputStream(up.getOutputStream(), upstreamBufSize)) { n ->
-                        TrafficStats.addTx(n.toLong())
-                        ClientUsage.add(clientIp, n.toLong())
-                    }.also { upBytes.set(it) }
+                    try {
+                        pump(input, BufferedOutputStream(up.getOutputStream(), upstreamBufSize)) { n ->
+                            TrafficStats.addTx(n.toLong())
+                            ClientUsage.add(clientIp, n.toLong())
+                        }.also { upBytes.set(it) }
+                    } finally {
+                        runCatching { up.shutdownInput() }
+                        runCatching { client.shutdownInput() }
+                    }
                 }
                 val toClient = async {
-                    val timed = FirstByteTimer(up.getInputStream()) {
-                        firstByteMs.compareAndSet(-1L, System.currentTimeMillis() - openAt)
+                    try {
+                        val timed = FirstByteTimer(up.getInputStream()) {
+                            firstByteMs.compareAndSet(-1L, System.currentTimeMillis() - openAt)
+                        }
+                        pump(StreamReader(timed), output) { n ->
+                            TrafficStats.addRx(n.toLong())
+                            ClientUsage.add(clientIp, n.toLong())
+                        }.also { dnBytes.set(it) }
+                    } finally {
+                        runCatching { up.shutdownOutput() }
+                        runCatching { client.shutdownOutput() }
                     }
-                    pump(StreamReader(timed), output) { n ->
-                        TrafficStats.addRx(n.toLong())
-                        ClientUsage.add(clientIp, n.toLong())
-                    }.also { dnBytes.set(it) }
                 }
-                toServer.await()
-                toClient.await()
+                try {
+                    toServer.await()
+                } finally {
+                    toClient.cancel()
+                    runCatching { up.close() }
+                }
+                try {
+                    toClient.await()
+                } catch (_: Exception) {
+                }
             }
             reportTunnel(host, port, System.currentTimeMillis() - openAt, upBytes.get(), dnBytes.get(), firstByteMs.get())
         } catch (e: Exception) {
@@ -661,11 +746,47 @@ class HttpProxyServer(
     }
 
     private fun splitHostPort(s: String, defaultPort: Int): Pair<String, Int> {
-        val idx = s.lastIndexOf(':')
+        val t = s.trim()
+        // [v6-literal]:port
+        if (t.startsWith("[")) {
+            val close = t.indexOf(']')
+            if (close > 0) {
+                val h = t.substring(1, close)
+                val rest = t.substring(close + 1)
+                val p = if (rest.startsWith(":")) rest.substring(1).toIntOrNull() ?: defaultPort else defaultPort
+                return h to p
+            }
+            return t to defaultPort
+        }
+        // Bare IPv6 literal (multiple colons, no brackets): no port present.
+        if (t.count { it == ':' } > 1) return t to defaultPort
+        val idx = t.lastIndexOf(':')
         return if (idx > 0) {
-            s.substring(0, idx) to (s.substring(idx + 1).toIntOrNull() ?: defaultPort)
+            t.substring(0, idx) to (t.substring(idx + 1).toIntOrNull() ?: defaultPort)
         } else {
-            s to defaultPort
+            t to defaultPort
+        }
+    }
+
+    private fun parseConnectTarget(target: String): Pair<String, Int> {
+        val t = target.trim()
+        if (t.startsWith("[")) {
+            val close = t.indexOf(']')
+            if (close > 0) {
+                val h = t.substring(1, close)
+                val rest = t.substring(close + 1)
+                val p = if (rest.startsWith(":")) rest.substring(1).toIntOrNull() ?: 443 else 443
+                return h to p
+            }
+            return t to 443
+        }
+        // host:port, but a bare IPv6 literal contains many colons.
+        if (t.count { it == ':' } > 1) return t to 443
+        val idx = t.lastIndexOf(':')
+        return if (idx > 0) {
+            t.substring(0, idx) to (t.substring(idx + 1).toIntOrNull() ?: 443)
+        } else {
+            t to 443
         }
     }
 
@@ -675,6 +796,7 @@ class HttpProxyServer(
 
     private fun pumpChunked(input: StreamReader, dst: OutputStream, onBytes: ((Int) -> Unit)? = null) {
         try {
+            val buf = ByteArray(131072)
             while (running.get()) {
                 val sizeLine = readLine(input) ?: return
                 val size = sizeLine.split(";")[0].trim().toIntOrNull(16) ?: return
@@ -685,21 +807,20 @@ class HttpProxyServer(
                         val l = readLine(input) ?: return
                         dst.write(l.toByteArray(Charsets.ISO_8859_1))
                         dst.write(CRLF)
-                        if (l.isEmpty()) return
+                        if (l.isEmpty()) { dst.flush(); return }
                     }
                 }
-                if (size < 0 || size > 8 * 1024 * 1024) return
-                val body = ByteArray(size)
-                var read = 0
-                while (read < size) {
-                    val n = input.read(body, read, size - read)
+                if (size < 0) return
+                var remaining = size
+                while (remaining > 0) {
+                    val n = input.read(buf, 0, minOf(buf.size, remaining))
                     if (n <= 0) return
-                    read += n
+                    dst.write(buf, 0, n)
+                    remaining -= n
+                    onBytes?.invoke(n)
                 }
-                dst.write(body, 0, size)
                 dst.write(CRLF)
                 dst.flush()
-                onBytes?.invoke(size)
                 readLine(input)
             }
         } catch (_: Exception) {
